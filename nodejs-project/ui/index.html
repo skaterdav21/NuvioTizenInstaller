@@ -94,6 +94,9 @@
     .app-note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
     .launch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     #launch-legacy { grid-column: 1 / -1; }
+    .signin { border: 1px solid #ffffff55; border-radius: 12px; padding: 14px; margin: 12px 0; background: #ffffff0d; }
+    .signin p { font-size: 13px; color: var(--muted); margin: 6px 0 12px; line-height: 1.4; }
+    .signin a.button { display: block; text-align: center; text-decoration: none; padding: 12px; border-radius: 10px; background: #ffffff; color: #000; font-weight: 700; }
     .hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
   </style>
 </head>
@@ -152,6 +155,15 @@
     <div class="app-option">
       <label class="check"><input type="checkbox" id="pick-plex"><span>Plex</span></label>
       <div class="app-note">SamSUCKS-based Plex client, built into this app · needs a 2022+ TV (Tizen 6.5)</div>
+    </div>
+    <div class="signin hidden" id="signin">
+      <strong>Samsung sign-in needed</strong>
+      <p>Sign in once so Samsung can issue this TV's certificate. After signing in, come back to this app; the install continues by itself.</p>
+      <a class="button primary" id="signin-chrome" href="#">Sign in with Chrome</a>
+      <div class="launch-row" style="margin-top:8px">
+        <button class="small" id="signin-inapp">Use in-app sign-in</button>
+        <button class="small" id="signin-copy">Copy link</button>
+      </div>
     </div>
     <div class="status" id="status"><span class="dot"></span><span id="status-text">Ready</span></div>
     <div class="actions">
@@ -266,17 +278,37 @@
       else navigator.clipboard?.writeText(text);
     }
 
+    let signinUrl = "";
+    function showSignin(url) {
+      signinUrl = url;
+      // Links that leave the app open in the phone's browser (Chrome), which then
+      // returns the login to this app on localhost:4794. The in-app WebView is kept as a fallback.
+      $("signin-chrome").href = url;
+      $("signin").classList.remove("hidden");
+      appendLog("Samsung sign-in needed. Tap \"Sign in with Chrome\", sign in, then come back here.", "info");
+      setStatus("Waiting for Samsung sign-in (tap Sign in with Chrome)", "busy");
+      $("signin").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    function hideSignin() {
+      $("signin").classList.add("hidden");
+    }
+    $("signin-chrome").addEventListener("click", (event) => {
+      if (!bridge) { event.preventDefault(); window.open(signinUrl, "_blank"); }
+      appendLog("Opened Samsung sign-in in Chrome.", "info");
+    });
+    $("signin-inapp").addEventListener("click", () => { if (bridge) bridge.openLogin(signinUrl); else window.open(signinUrl, "_blank"); });
+    $("signin-copy").addEventListener("click", () => { copy(signinUrl); appendLog("Sign-in link copied. Paste it into Chrome.", "info"); });
+
     function connectEvents() {
       const source = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
       source.onmessage = (message) => {
         const { channel, payload } = JSON.parse(message.data);
         if (channel === "installer:log") {
           appendLog(payload.text, payload.type);
+          if (/certificate created|Samsung login timed out/i.test(payload.text || "")) hideSignin();
           if (busy && payload.type === "info") setStatus(payload.text.slice(0, 90), "busy");
         } else if (channel === "installer:openExternal") {
-          appendLog("Opening Samsung sign-in…", "info");
-          if (bridge) bridge.openLogin(payload.url);
-          else window.open(payload.url, "_blank");
+          showSignin(payload.url);
         } else if (channel === "installer:clipboard") {
           copy(payload.text);
         }
@@ -418,6 +450,7 @@
         }
       } finally {
         setBusy(false);
+        hideSignin();
       }
       if (action === "install") { refreshCertStatus(failures.length < apps.length); refreshCaStatus(); }
       const names = apps.map(appLabel).join(" and ");

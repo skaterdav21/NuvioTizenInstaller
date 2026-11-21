@@ -1,3 +1,7 @@
+## 1.3.2
+
+- Samsung sign-in now opens in Chrome by default ("Sign in with Chrome"). The in-app WebView sign-in failed with ERR_CONNECTION_CLOSED on account.samsung.com. Chrome returns the login to the app through the same localhost:4794 callback. In-app sign-in and Copy link stay as fallbacks.
+
 ## 1.3.1
 
 - New: **Prepare ahead** card. Downloads the selected builds and pre-signs them with every saved TV certificate, so Install at the TV only connects, uploads and installs. Runs automatically when the app opens (toggle in the card).
