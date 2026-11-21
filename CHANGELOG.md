@@ -1,3 +1,10 @@
+## 1.3.3
+
+- Fixed: large uploads to the TV (the 35 MB Nuvio Legacy TPK) were sent without ADB flow control, so the TV could end up with a partial file and `vd_appinstall` hung. Uploads now send one packet at a time, wait for the TV's acknowledgement, and wait for the TV to confirm the file was written.
+- Upload progress every 10% with speed, and up to 3 attempts if the TV drops the upload.
+- The uploaded file size is now checked on the TV (sync STAT) before installing, instead of `ls`, which never answered on the direct connection.
+- TPK installs get 7 minutes instead of 3.
+
 ## 1.3.2
 
 - Samsung sign-in now opens in Chrome by default ("Sign in with Chrome"). The in-app WebView sign-in failed with ERR_CONNECTION_CLOSED on account.samsung.com. Chrome returns the login to the app through the same localhost:4794 callback. In-app sign-in and Copy link stay as fallbacks.

@@ -1083,83 +1083,217 @@ async function ensureSamsungTempDirectory(event, transport) {
   }
 }
 
-function pushFileAdb(adbClient, remotePath, data) {
-  return new Promise((resolve, reject) => {
-    const shell = adbClient.createStream("sync:");
-    let interval;
-    let settled = false;
+// adbhost doesn't surface per-stream OKAY/CLSE packets, so wrap its dispatcher once
+// per client. Each OKAY after the OPEN reply acknowledges one WRTE we sent.
+function instrumentAdbClient(adbClient) {
+  if (adbClient.__nuvioInstrumented) return;
+  adbClient.__nuvioInstrumented = true;
+  const original = adbClient._onPacket;
+  adbClient._onPacket = function patchedOnPacket() {
+    const packet = this._packet;
+    const userStream = packet ? this._userStreams[packet.arg2] : null;
+    const wasOpen = Boolean(userStream && userStream._remoteId !== -1);
+    if (packet && packet.command === adbCommands.CLSE && userStream) {
+      userStream.emit("_closed");
+    }
+    original.call(this);
+    if (packet && userStream) {
+      if (packet.command === adbCommands.OKAY) {
+        userStream.emit(wasOpen ? "_ack" : "_opened");
+      }
+    }
+  };
+}
 
-    function finish(error) {
-      if (settled) {
-        return;
+// Opens a sync: service stream and gives a small request/response API on it with
+// proper ADB flow control (one WRTE in flight, wait for OKAY), so large uploads
+// arrive intact instead of flooding the TV's sdbd.
+function openAdbSync(adbClient, timeoutMs = 30000) {
+  instrumentAdbClient(adbClient);
+  return new Promise((resolve, reject) => {
+    const stream = adbClient.createStream("sync:");
+    let received = Buffer.alloc(0);
+    const waiters = [];
+    let closed = false;
+    let ackResolver = null;
+
+    const fail = (error) => {
+      closed = true;
+      if (ackResolver) { ackResolver.reject(error); ackResolver = null; }
+      while (waiters.length) waiters.shift().reject(error);
+    };
+
+    stream.on("data", (chunk) => {
+      received = Buffer.concat([received, chunk]);
+      pump();
+    });
+    stream.on("_ack", () => {
+      if (ackResolver) { const resolveAck = ackResolver.resolve; ackResolver = null; resolveAck(); }
+    });
+    stream.on("_closed", () => fail(new Error("TV closed the upload connection.")));
+    stream.on("error", (error) => fail(error));
+
+    function pump() {
+      while (waiters.length && received.length >= waiters[0].bytes) {
+        const waiter = waiters.shift();
+        const chunk = received.subarray(0, waiter.bytes);
+        received = received.subarray(waiter.bytes);
+        waiter.resolve(Buffer.from(chunk));
       }
-      settled = true;
-      clearTimeout(timeout);
-      clearInterval(interval);
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
     }
 
-    const timeout = setTimeout(() => {
-      finish(new Error(`Timeout push ${remotePath}`));
-    }, 30000);
+    const maxPayload = () => Math.max(4096, Math.min(Number(adbClient._hostMaxData) || 4096, 256 * 1024));
 
-    shell.on("error", (error) => {
-      finish(error);
-    });
-
-    interval = setInterval(() => {
-      if (shell._remoteId === -1) {
-        return;
+    const api = {
+      maxPayload,
+      // Sends one WRTE and waits for the TV's OKAY.
+      write(buffer, ackTimeoutMs = timeoutMs) {
+        if (closed) return Promise.reject(new Error("Upload connection is closed."));
+        return new Promise((resolveWrite, rejectWrite) => {
+          const timer = setTimeout(() => {
+            ackResolver = null;
+            rejectWrite(new Error(`TV stopped acknowledging the upload (no reply in ${Math.round(ackTimeoutMs / 1000)}s).`));
+          }, ackTimeoutMs);
+          ackResolver = {
+            resolve: () => { clearTimeout(timer); resolveWrite(); },
+            reject: (error) => { clearTimeout(timer); rejectWrite(error); }
+          };
+          adbClient._writePacket(adbCommands.WRTE, stream._localId, stream._remoteId, buffer);
+        });
+      },
+      read(bytes, readTimeoutMs = timeoutMs) {
+        return new Promise((resolveRead, rejectRead) => {
+          if (closed && received.length < bytes) { rejectRead(new Error("Upload connection is closed.")); return; }
+          const timer = setTimeout(() => {
+            const index = waiters.indexOf(waiter);
+            if (index >= 0) waiters.splice(index, 1);
+            rejectRead(new Error(`TV didn't answer in ${Math.round(readTimeoutMs / 1000)}s.`));
+          }, readTimeoutMs);
+          const waiter = {
+            bytes,
+            resolve: (data) => { clearTimeout(timer); resolveRead(data); },
+            reject: (error) => { clearTimeout(timer); rejectRead(error); }
+          };
+          waiters.push(waiter);
+          pump();
+        });
+      },
+      async quit() {
+        if (closed) return;
+        const quit = Buffer.alloc(8);
+        quit.write("QUIT", 0);
+        await api.write(quit, 5000).catch(() => {});
+        closed = true;
       }
+    };
 
-      try {
-        const statBuffer = Buffer.alloc(8);
-        statBuffer.write("STAT", 0);
-        statBuffer.writeUInt32LE(remotePath.length, 4);
-        adbClient._writePacket(adbCommands.WRTE, shell._localId, shell._remoteId, statBuffer);
-        adbClient._writePacket(adbCommands.WRTE, shell._localId, shell._remoteId, Buffer.from(remotePath));
-
-        const sendBuffer = Buffer.alloc(8);
-        sendBuffer.writeUInt32LE(0x444E4553, 0);
-        sendBuffer.writeUInt32LE(remotePath.length + 6, 4);
-        adbClient._writePacket(adbCommands.WRTE, shell._localId, shell._remoteId, sendBuffer);
-        adbClient._writePacket(adbCommands.WRTE, shell._localId, shell._remoteId, Buffer.from(`${remotePath},33261`));
-
-        for (let offset = 0; offset < data.length; offset += 1420) {
-          const chunk = data.slice(offset, offset + 1420);
-          const buffer = Buffer.alloc(8 + chunk.length);
-          buffer.write("DATA", 0);
-          buffer.writeUInt32LE(chunk.length, 4);
-          chunk.copy(buffer, 8);
-          adbClient._writePacket(adbCommands.WRTE, shell._localId, shell._remoteId, buffer);
-        }
-
-        const doneData = Buffer.alloc(8);
-        doneData.write("DONE", 0);
-        doneData.writeUInt32LE(Math.floor(Date.now() / 1000), 4);
-        adbClient._writePacket(adbCommands.WRTE, shell._localId, shell._remoteId, doneData);
-
-        const quitData = Buffer.alloc(8);
-        quitData.write("QUIT", 0);
-        adbClient._writePacket(adbCommands.WRTE, shell._localId, shell._remoteId, quitData);
-
-        finish();
-      } catch (error) {
-        finish(error);
-      }
-    }, 100);
+    const openTimer = setTimeout(() => {
+      fail(new Error(`TV did not open the upload channel in ${Math.round(timeoutMs / 1000)}s.`));
+      reject(new Error(`TV did not open the upload channel in ${Math.round(timeoutMs / 1000)}s.`));
+    }, timeoutMs);
+    stream.once("_opened", () => { clearTimeout(openTimer); resolve(api); });
   });
+}
+
+function syncRequest(id, payload) {
+  const body = Buffer.from(payload);
+  const header = Buffer.alloc(8);
+  header.write(id, 0);
+  header.writeUInt32LE(body.length, 4);
+  return Buffer.concat([header, body]);
+}
+
+async function readSyncStatus(sync, timeoutMs) {
+  const header = await sync.read(8, timeoutMs);
+  const id = header.toString("ascii", 0, 4);
+  const length = header.readUInt32LE(4);
+  if (id === "OKAY") return;
+  if (id === "FAIL") {
+    const message = length ? (await sync.read(length, 10000)).toString("utf8") : "unknown error";
+    throw new Error(`TV refused the upload: ${message}`);
+  }
+  throw new Error(`Unexpected upload reply from TV: ${id}`);
+}
+
+// Returns { mode, size, mtime } of a remote path, or null if it doesn't exist.
+async function statFileAdb(adbClient, remotePath) {
+  const sync = await openAdbSync(adbClient, 15000);
+  try {
+    await sync.write(syncRequest("STAT", remotePath));
+    const reply = await sync.read(16, 15000);
+    if (reply.toString("ascii", 0, 4) !== "STAT") throw new Error("Unexpected STAT reply from TV.");
+    const mode = reply.readUInt32LE(4);
+    const size = reply.readUInt32LE(8);
+    const mtime = reply.readUInt32LE(12);
+    return mode === 0 && size === 0 && mtime === 0 ? null : { mode, size, mtime };
+  } finally {
+    await sync.quit();
+  }
+}
+
+async function pushFileAdb(adbClient, remotePath, data, onProgress = () => {}) {
+  const sync = await openAdbSync(adbClient, 30000);
+  try {
+    // Build the sync byte stream: SEND header, DATA records (<=64 KB each), DONE.
+    const parts = [syncRequest("SEND", `${remotePath},33261`)];
+    for (let offset = 0; offset < data.length; offset += 65536) {
+      const chunk = data.subarray(offset, offset + 65536);
+      const header = Buffer.alloc(8);
+      header.write("DATA", 0);
+      header.writeUInt32LE(chunk.length, 4);
+      parts.push(header, chunk);
+    }
+    const done = Buffer.alloc(8);
+    done.write("DONE", 0);
+    done.writeUInt32LE(Math.floor(Date.now() / 1000), 4);
+    parts.push(done);
+    const payload = Buffer.concat(parts);
+
+    const packetSize = sync.maxPayload();
+    let nextReport = 10;
+    for (let offset = 0; offset < payload.length; offset += packetSize) {
+      const packet = payload.subarray(offset, offset + packetSize);
+      await sync.write(packet);
+      const sent = Math.min(data.length, offset + packet.length);
+      const percent = Math.floor((sent / Math.max(1, data.length)) * 100);
+      if (percent >= nextReport) {
+        onProgress(Math.min(100, percent - (percent % 10)), sent, data.length);
+        nextReport = percent - (percent % 10) + 10;
+      }
+    }
+    // The TV answers once the file is fully written (or with FAIL and a reason).
+    await readSyncStatus(sync, 120000);
+  } finally {
+    await sync.quit();
+  }
 }
 
 async function pushSamsungFile(event, transport, localPath, remotePath) {
   if (transport.type === "adb") {
     emit(event, { type: "command", text: `$ adbhost push ${localPath} ${remotePath}` });
-    await pushFileAdb(transport.adbClient, remotePath, fs.readFileSync(localPath));
-    return;
+    const data = fs.readFileSync(localPath);
+    const started = Date.now();
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await pushFileAdb(transport.adbClient, remotePath, data, (percent, sent, total) => {
+          if (total < 1048576) return;
+          const seconds = Math.max(1, (Date.now() - started) / 1000);
+          emit(event, { type: "info", text: `Uploading to TV: ${percent}% (${formatMb(sent)} of ${formatMb(total)}, ${formatMb(sent / seconds)}/s)` });
+        });
+        if (data.length >= 1048576) {
+          emit(event, { type: "info", text: `Upload finished in ${Math.round((Date.now() - started) / 1000)}s.` });
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          emit(event, { type: "info", text: `Upload attempt ${attempt} failed (${error?.message || error}); retrying in 3s.` });
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 3000));
+        }
+      }
+    }
+    throw new Error(`Timeout push ${remotePath}: ${lastError?.message || lastError}`);
   }
 
   await runCommand(event, transport.sdb, ["-s", transport.target, "push", localPath, remotePath]);
@@ -1167,6 +1301,20 @@ async function pushSamsungFile(event, transport, localPath, remotePath) {
 
 async function verifySamsungRemotePackage(event, transport, localPath, remotePath) {
   const expectedSize = fs.statSync(localPath).size;
+  if (transport.type === "adb") {
+    try {
+      const remote = await statFileAdb(transport.adbClient, remotePath);
+      if (!remote) throw new Error("Samsung package upload failed: the file isn't on the TV.");
+      if (remote.size !== expectedSize) {
+        throw new Error(`Samsung package upload failed: TV has ${remote.size} bytes, expected ${expectedSize}.`);
+      }
+      emit(event, { type: "info", text: `Verified on TV: ${formatMb(remote.size)} uploaded intact.` });
+      return;
+    } catch (error) {
+      if (/upload failed/.test(error?.message || "")) throw error;
+      emit(event, { type: "info", text: `Couldn't confirm the upload size (${error?.message || error}); continuing.` });
+    }
+  }
   let output = "";
   try {
     output = await runSamsungShell(event, transport, ["ls", "-l", remotePath], {
@@ -2349,9 +2497,12 @@ async function installSamsungPackage(event, transport, packagePath) {
   let lastError = null;
   for (const installId of installIds) {
     try {
+      if (metadata.extension === "tpk") {
+        emit(event, { type: "info", text: "Installing on the TV. Native packages can take a few minutes on older TVs." });
+      }
       const output = await runSamsungShell(event, transport, ["0", "vd_appinstall", installId, remotePath], {
         completeWhen: samsungPackageCommandCompletePattern,
-        timeoutMs: 180000
+        timeoutMs: metadata.extension === "tpk" ? 420000 : 180000
       });
       throwIfSamsungOutputFailed(output, `vd_appinstall failed with ${installId}`);
       return metadata;
