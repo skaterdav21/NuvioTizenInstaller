@@ -1,0 +1,15 @@
+{
+  "name": "nuvio-tv-installer-android-node",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node side of the Nuvio TV Installer Android port (Samsung Tizen).",
+  "main": "server.js",
+  "license": "GPL-3.0",
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.10",
+    "adbhost": "^0.0.2",
+    "jszip": "^3.10.1",
+    "node-forge": "^1.3.1",
+    "tizen": "file:vendor/tizen.js"
+  }
+}

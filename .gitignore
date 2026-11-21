@@ -1,0 +1,6 @@
+*.jks
+*.keystore
+dist/
+out/
+unsigned.apk
+uber.jar
