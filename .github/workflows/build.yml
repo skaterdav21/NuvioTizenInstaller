@@ -39,7 +39,7 @@ jobs:
 
       - name: Sign APK
         env:
-          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 || secrets.NUVIO_AUTO_KEYSTORE_B64 }}
           KEYSTORE_PASS: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASS" ]; then
