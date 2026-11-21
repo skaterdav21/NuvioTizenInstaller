@@ -166,6 +166,14 @@
   </section>
 
   <section class="card">
+    <h2>Prepare ahead</h2>
+    <div class="status" id="prep-status"><span class="dot"></span><span id="prep-status-text">Not prepared yet</span></div>
+    <button id="prepare">Download &amp; pre-sign selected apps now</button>
+    <label class="check" style="margin-top:12px;font-size:14px;font-weight:500"><input type="checkbox" id="auto-prepare" checked><span>Prepare automatically when this app opens</span></label>
+    <p class="hint">Downloads the newest builds and signs them with your saved TV certificates at home, so at the TV, Install only has to connect, upload and install. Uses about 40 MB per Nuvio Legacy update, so open the app on Wi-Fi.</p>
+  </section>
+
+  <section class="card">
     <h2>Samsung CA files</h2>
     <div class="status" id="ca-status"><span class="dot"></span><span id="ca-status-text">Checking…</span></div>
     <div class="launch-row">
@@ -546,6 +554,48 @@
     loadReleases();
     refreshCertStatus();
     refreshCaStatus();
+
+    let preparing = false;
+    function setPrepStatus(text, kind = "") {
+      $("prep-status").className = `status ${kind}`;
+      $("prep-status-text").textContent = text;
+    }
+    async function prepare(quiet = false) {
+      if (preparing) return;
+      const apps = selectedApps();
+      if (apps.length === 0) { if (!quiet) setPrepStatus("Select at least one app above", "err"); return; }
+      preparing = true;
+      $("prepare").disabled = true;
+      setPrepStatus("Preparing… (progress in the log)", "busy");
+      try {
+        const useFile = $("version").value === LOCAL_FILE;
+        const summary = await invoke("installer:prefetch", {
+          apps: apps.filter((app) => !(app === "nuvio" && useFile)),
+          ip: $("tv-ip").value.trim(),
+          legacyVariant: $("legacy-variant").value,
+          releaseId: useFile ? "" : $("version").value
+        });
+        const stamp = new Date().toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        if (summary.errors.length) {
+          setPrepStatus(summary.errors[0], "err");
+        } else {
+          const signedNote = summary.certificates ? "downloaded and pre-signed" : "downloaded (signing happens on first install)";
+          const text = `Ready · ${signedNote} · ${stamp}`;
+          setPrepStatus(text, "ok");
+          store("prepStatus", text);
+        }
+      } catch (error) {
+        setPrepStatus(error.message, "err");
+      } finally {
+        preparing = false;
+        $("prepare").disabled = false;
+      }
+    }
+    $("prepare").addEventListener("click", () => prepare(false));
+    $("auto-prepare").checked = load("autoPrepare") !== "off";
+    $("auto-prepare").addEventListener("change", () => store("autoPrepare", $("auto-prepare").checked ? "on" : "off"));
+    if (load("prepStatus")) setPrepStatus(load("prepStatus"), "ok");
+    if ($("auto-prepare").checked) setTimeout(() => prepare(true), 2500);
   </script>
 </body>
 </html>

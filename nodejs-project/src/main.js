@@ -321,24 +321,62 @@ async function fetchJson(url) {
   return response.json();
 }
 
-async function downloadFile(event, url, targetPath) {
-  emit(event, { type: "info", text: `Download ${url}` });
-  const response = await fetch(url, {
-    headers: { "User-Agent": "Nuvio-TV-Installer" }
-  });
+const inFlightJobs = new Map();
 
-  if (!response.ok) {
-    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+// Runs one job per key at a time; a second caller (e.g. Install while Prepare is
+// still downloading) waits for the same promise instead of starting over.
+function singleFlight(key, job) {
+  if (inFlightJobs.has(key)) {
+    return inFlightJobs.get(key);
   }
+  const promise = Promise.resolve().then(job).finally(() => inFlightJobs.delete(key));
+  inFlightJobs.set(key, promise);
+  return promise;
+}
 
-  await fsp.mkdir(path.dirname(targetPath), { recursive: true });
-  const file = fs.createWriteStream(targetPath);
-  await new Promise((resolve, reject) => {
-    const body = Readable.fromWeb(response.body);
-    body.pipe(file);
-    body.on("error", reject);
-    file.on("finish", resolve);
-    file.on("error", reject);
+function formatMb(bytes) {
+  return `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
+async function downloadFile(event, url, targetPath) {
+  return singleFlight(`download:${targetPath}`, async () => {
+    emit(event, { type: "info", text: `Download ${url}` });
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Nuvio-TV-Installer" }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+    }
+
+    await fsp.mkdir(path.dirname(targetPath), { recursive: true });
+    const total = Number(response.headers.get("content-length") || 0);
+    const partialPath = `${targetPath}.part`;
+    const file = fs.createWriteStream(partialPath);
+    let received = 0;
+    let nextReport = 10;
+    await new Promise((resolve, reject) => {
+      const body = Readable.fromWeb(response.body);
+      body.on("data", (chunk) => {
+        received += chunk.length;
+        if (total > 0) {
+          const percent = Math.floor((received / total) * 100);
+          if (percent >= nextReport) {
+            emit(event, { type: "info", text: `Downloading ${path.basename(targetPath)}: ${percent}% (${formatMb(received)} of ${formatMb(total)})` });
+            nextReport = Math.min(100, Math.floor(percent / 10) * 10 + 10);
+          }
+        }
+      });
+      body.pipe(file);
+      body.on("error", reject);
+      file.on("finish", resolve);
+      file.on("error", reject);
+    });
+    if (total > 0 && received !== total) {
+      await fsp.rm(partialPath, { force: true });
+      throw new Error(`Download was cut off at ${formatMb(received)} of ${formatMb(total)}. Try again.`);
+    }
+    await fsp.rename(partialPath, targetPath);
   });
 }
 
@@ -448,14 +486,64 @@ async function getLatestLegacyRelease(event) {
   };
 }
 
-async function resolveLegacyPackage(event, transport, requestedVariant) {
+function legacyVariantStorePath() {
+  return path.join(app.getPath("userData"), "legacy-variants.json");
+}
+
+async function readRememberedLegacyVariants() {
+  try {
+    return JSON.parse(await fsp.readFile(legacyVariantStorePath(), "utf8")) || {};
+  } catch {
+    return {};
+  }
+}
+
+async function rememberLegacyVariant(ip, variant) {
+  if (!ip || !legacyVariants[variant]) return;
+  const store = await readRememberedLegacyVariants();
+  if (store[ip] === variant && store.last === variant) return;
+  store[ip] = variant;
+  store.last = variant;
+  await fsp.mkdir(path.dirname(legacyVariantStorePath()), { recursive: true });
+  await fsp.writeFile(legacyVariantStorePath(), JSON.stringify(store, null, 2));
+}
+
+async function findCachedLegacyPackage(variant) {
+  const packagesDir = path.join(app.getPath("userData"), "packages");
+  const found = [];
+  for (const dir of await fsp.readdir(packagesDir).catch(() => [])) {
+    if (!dir.startsWith("legacy-")) continue;
+    for (const name of await fsp.readdir(path.join(packagesDir, dir)).catch(() => [])) {
+      if (!legacyVariants[variant].pattern.test(name)) continue;
+      const fullPath = path.join(packagesDir, dir, name);
+      const stat = await fsp.stat(fullPath).catch(() => null);
+      if (stat?.size) found.push({ fullPath, mtimeMs: stat.mtimeMs });
+    }
+  }
+  found.sort((left, right) => right.mtimeMs - left.mtimeMs);
+  return found[0]?.fullPath || "";
+}
+
+async function resolveLegacyPackage(event, transport, requestedVariant, ip = "") {
   let variant = String(requestedVariant || "auto").trim();
+  if (!legacyVariants[variant] && ip) {
+    const remembered = (await readRememberedLegacyVariants())[ip];
+    if (legacyVariants[remembered]) {
+      variant = remembered;
+      emit(event, { type: "info", text: `Using the ${legacyVariants[variant].label} build detected for this TV before.` });
+    }
+  }
+  if (!legacyVariants[variant] && !transport) {
+    variant = (await readRememberedLegacyVariants()).last || "40";
+    emit(event, { type: "info", text: `Preparing the ${legacyVariants[variant].label} build. Pick the TV year in the dropdown if that's wrong.` });
+  }
   if (!legacyVariants[variant]) {
     emit(event, { type: "info", text: "Detecting the TV's Tizen version to pick the right Nuvio Legacy build." });
     const tizenVersion = await readSamsungPlatformVersion(event, transport);
     variant = legacyVariantForTizen(tizenVersion);
     if (variant) {
       emit(event, { type: "info", text: `TV reports Tizen ${tizenVersion}; using the ${legacyVariants[variant].label} build.` });
+      await rememberLegacyVariant(ip, variant);
     } else {
       variant = "40";
       emit(event, {
@@ -463,11 +551,19 @@ async function resolveLegacyPackage(event, transport, requestedVariant) {
         text: "The TV did not report its Tizen version, so the Tizen 4 / 5 / 5.5 build is used. If it won't install or launch, pick your TV year in the Nuvio Legacy dropdown and run again."
       });
     }
-  } else {
+  } else if (requestedVariant && requestedVariant !== "auto") {
     emit(event, { type: "info", text: `Using the ${legacyVariants[variant].label} build of Nuvio Legacy.` });
   }
 
-  const release = await getLatestLegacyRelease(event);
+  let release;
+  try {
+    release = await getLatestLegacyRelease(event);
+  } catch (error) {
+    const cached = await findCachedLegacyPackage(variant);
+    if (!cached) throw error;
+    emit(event, { type: "info", text: `Couldn't check GitHub for a newer Nuvio Legacy (${error?.message || error}); using the downloaded ${path.basename(cached)}.` });
+    return { packagePath: cached, variant };
+  }
   const asset = Array.isArray(release.assets) ? release.assets.find((item) => legacyVariants[variant].pattern.test(item.name)) : null;
   if (!asset) {
     throw new Error(`Nuvio Legacy ${release.tag_name || "latest"} has no ${legacyVariants[variant].label} package.`);
@@ -481,11 +577,9 @@ async function resolveLegacyPackage(event, transport, requestedVariant) {
     if (!stat.size) throw new Error("empty");
     emit(event, { type: "info", text: `Using already downloaded package: ${targetPath}` });
   } catch {
-    const partialPath = `${targetPath}.part`;
-    await downloadFile(event, asset.browser_download_url, partialPath);
-    await fsp.rename(partialPath, targetPath);
+    await downloadFile(event, asset.browser_download_url, targetPath);
   }
-  return targetPath;
+  return { packagePath: targetPath, variant };
 }
 
 function requireValue(value, label) {
@@ -2030,10 +2124,66 @@ async function findSamsungInstalledApp(event, transport, identifiers) {
   ].some((value) => candidates.includes(String(value || "").trim()))) || null;
 }
 
+async function hashFile(filePath) {
+  const hash = crypto.createHash("sha256");
+  await new Promise((resolve, reject) => {
+    fs.createReadStream(filePath).on("data", (chunk) => hash.update(chunk)).on("end", resolve).on("error", reject);
+  });
+  return hash.digest("hex");
+}
+
+function signedCacheDirectory() {
+  return path.join(app.getPath("userData"), "signed-cache");
+}
+
+async function pruneSignedCache(keep = 8) {
+  const directory = signedCacheDirectory();
+  const entries = [];
+  for (const name of await fsp.readdir(directory).catch(() => [])) {
+    const stat = await fsp.stat(path.join(directory, name)).catch(() => null);
+    if (stat) entries.push({ name, atimeMs: Math.max(stat.atimeMs, stat.mtimeMs) });
+  }
+  entries.sort((left, right) => right.atimeMs - left.atimeMs);
+  for (const entry of entries.slice(keep)) {
+    await fsp.rm(path.join(directory, entry.name), { force: true }).catch(() => {});
+  }
+}
+
+// Signing ~1,100 files takes a while on a phone, so signed packages are cached
+// by (input package content, author certificate). Prepare fills this ahead of time.
 async function resignTizenPackageWithSamsungCertificate(event, packagePath, certificateConfig) {
   if (certificateConfig?.profileName) {
     return signTizenPackageWithStudioProfile(event, packagePath, certificateConfig.profileName);
   }
+  const fingerprint = getSamsungCertificateFingerprint(certificateConfig);
+  if (!fingerprint) {
+    return signTizenPackageUncached(event, packagePath, certificateConfig);
+  }
+  const contentHash = await hashFile(packagePath);
+  const extension = path.extname(packagePath) || ".wgt";
+  const cachedPath = path.join(signedCacheDirectory(), `${contentHash.slice(0, 24)}-${fingerprint.slice(0, 16)}${extension}`);
+  return singleFlight(`sign:${cachedPath}`, async () => {
+    const stat = await fsp.stat(cachedPath).catch(() => null);
+    if (stat?.size) {
+      const now = new Date();
+      await fsp.utimes(cachedPath, now, now).catch(() => {});
+      emit(event, { type: "info", text: `Using pre-signed package ${path.basename(cachedPath)}.` });
+      return cachedPath;
+    }
+    const started = Date.now();
+    const signedPath = await signTizenPackageUncached(event, packagePath, certificateConfig);
+    await fsp.mkdir(signedCacheDirectory(), { recursive: true });
+    await fsp.rename(signedPath, cachedPath).catch(async () => {
+      await fsp.copyFile(signedPath, cachedPath);
+      await fsp.rm(signedPath, { force: true });
+    });
+    emit(event, { type: "info", text: `Signed in ${Math.round((Date.now() - started) / 1000)}s and cached for next time.` });
+    await pruneSignedCache();
+    return cachedPath;
+  });
+}
+
+async function signTizenPackageUncached(event, packagePath, certificateConfig) {
 
   emit(event, { type: "info", text: `Automatically signing the ${path.extname(packagePath).slice(1).toUpperCase() || "package"} with the saved Samsung certificate.` });
 
@@ -2312,6 +2462,7 @@ async function runSamsung(event, action, options) {
   }
 
   const transport = await connectSamsungTransport(event, ip);
+  let legacyResolved = null;
 
   try {
     if (action === "launch") {
@@ -2322,7 +2473,7 @@ async function runSamsung(event, action, options) {
     const packagePath = isPlex
       ? bundledPlexPackagePath
       : isLegacy
-        ? await resolveLegacyPackage(event, transport, options.legacyVariant)
+        ? (legacyResolved = await resolveLegacyPackage(event, transport, options.legacyVariant, ip)).packagePath
         : options.packagePath || await resolveReleaseAsset(event, "tizen", options.releaseId);
     const preparedPackage = await prepareSamsungPackage(event, transport, packagePath, options);
     let installPackagePath = "";
@@ -2439,6 +2590,9 @@ async function runSamsung(event, action, options) {
       }
     }
 
+    if (legacyResolved) {
+      await rememberLegacyVariant(ip, legacyResolved.variant).catch(() => {});
+    }
     emit(event, {
       type: "info",
       text: "If you want to use debug/autolaunch, set Host PC IP to 127.0.0.1 on the TV after installation."
@@ -2468,6 +2622,79 @@ ipcMain.handle("installer:run", async (event, request) => {
     emit(event, { type: "error", text: error.message || String(error) });
     return { ok: false, error: error.message || String(error) };
   }
+});
+
+async function readAllSavedSamsungCertificates() {
+  const directory = getSamsungCertificateDirectory();
+  const configs = [];
+  const seen = new Set();
+  for (const name of await fsp.readdir(directory).catch(() => [])) {
+    if (!name.toLowerCase().endsWith(".json")) continue;
+    const certificateConfig = await readSamsungCertificateConfigFile(path.join(directory, name)).catch(() => null);
+    if (!isUsableSamsungCertificateConfig(certificateConfig)) continue;
+    const fingerprint = getSamsungCertificateFingerprint(certificateConfig);
+    if (!fingerprint || seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    configs.push(certificateConfig);
+  }
+  return configs;
+}
+
+// Prepare: download the selected builds and pre-sign them with every saved TV
+// certificate, so Install only has to connect, push and install.
+ipcMain.handle("installer:prefetch", async (event, request = {}) => {
+  const apps = Array.isArray(request.apps) ? request.apps : ["legacy"];
+  const ip = String(request.ip || "").trim();
+  const summary = { downloaded: [], signed: 0, certificates: 0, errors: [] };
+  emit(event, { type: "info", text: "Preparing builds ahead of time." });
+  const packages = [];
+
+  if (apps.includes("legacy")) {
+    try {
+      const { packagePath } = await resolveLegacyPackage(event, null, request.legacyVariant, ip);
+      packages.push(packagePath);
+      summary.downloaded.push(path.basename(packagePath));
+    } catch (error) {
+      summary.errors.push(`Nuvio Legacy: ${error?.message || error}`);
+    }
+  }
+  if (apps.includes("nuvio")) {
+    try {
+      const packagePath = await resolveReleaseAsset(event, "tizen", request.releaseId || "");
+      summary.downloaded.push(path.basename(packagePath));
+    } catch (error) {
+      summary.errors.push(`Nuvio: ${error?.message || error}`);
+    }
+  }
+  if (apps.includes("plex")) {
+    packages.push(bundledPlexPackagePath);
+  }
+
+  const certificates = await readAllSavedSamsungCertificates();
+  summary.certificates = certificates.length;
+  if (certificates.length === 0) {
+    emit(event, { type: "info", text: "No saved TV certificate yet, so packages will be signed during the first install." });
+  }
+  for (const packagePath of packages) {
+    for (const certificateConfig of certificates) {
+      try {
+        emit(event, { type: "info", text: `Pre-signing ${path.basename(packagePath)} for TV ${String(certificateConfig.duid || "").slice(-6) || "(saved)"}.` });
+        await resignTizenPackageWithSamsungCertificate(event, packagePath, certificateConfig);
+        summary.signed += 1;
+      } catch (error) {
+        summary.errors.push(`Signing ${path.basename(packagePath)}: ${error?.message || error}`);
+      }
+    }
+  }
+
+  if (summary.errors.length) {
+    summary.errors.forEach((text) => emit(event, { type: "error", text }));
+  }
+  emit(event, {
+    type: summary.errors.length ? "info" : "success",
+    text: `Prepared: ${summary.downloaded.join(", ") || "nothing new"}${summary.signed ? `, ${summary.signed} pre-signed` : ""}.`
+  });
+  return summary;
 });
 
 ipcMain.handle("installer:selectFile", async () => {
