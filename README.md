@@ -1,18 +1,31 @@
-# Nuvio Tizen Installer
+# TV Setup
 
-Android app that installs Nuvio, Nuvio Legacy and Plex onto a Samsung Tizen TV from the phone, over the TV's developer connection. Runs a Node.js installer (nodejs-mobile) behind a WebView UI.
+Phone app that sets up TVs and streaming boxes from Android: installs the best Nuvio build for the device, swaps in a clean home screen, and removes ads and tracking without breaking anything.
+
+| Device | Nuvio | Home screen | Ads & tracking |
+|---|---|---|---|
+| Samsung (Tizen 4+) | Nuvio Legacy native TPK, signed for the TV | n/a | Settings checklist |
+| LG (webOS, Developer Mode) | Nuvio Legacy IPK | n/a | Settings checklist, Dev Mode kept alive |
+| NVIDIA Shield, Sony, onn, other Android/Google TV | Official or Legacy lite | CleanYourTV launcher | Tested per-model lists + guards |
+| Fire TV | Official or Legacy lite | Locked by Amazon | Tested per-model lists + guards |
 
 ## Layout
 
-- `nodejs-project/` the app's Node side and UI (`server.js`, `src/main.js`, `ui/index.html`). This is what you edit.
-- `base/` the original 1.2.3 APK, used as the Android shell. CI swaps in `nodejs-project/` and re-signs it.
-- `scripts/repack.py` the repack step.
-- `.github/workflows/build.yml` builds, signs and publishes a release on every push to `main`.
+- `nodejs-project/` the app's Node side (runs in nodejs-mobile on the phone) and its UI.
+  - `src/core/` ADB client (auth, flow control), Wi-Fi scan, downloads, jobs, storage.
+  - `src/platforms/` Android TV, LG, Samsung engines; `debloat.js` list matching and guards.
+  - `src/main.js` the original Samsung Tizen installer logic.
+  - `src/data/lists.json` generated from CleanYourTV by `scripts/gen_lists.py`.
+  - `ui/index.html` the interface.
+- `base/` the Android shell APK (WebView + nodejs-mobile). CI renames it, swaps in `nodejs-project/` and signs it.
+- `tests/` mock Android TV (real ADB framing and RSA auth), mock LG TV (SSH/SFTP), end-to-end tests.
 
 ## Releasing
 
-Bump `VERSION`, add a `CHANGELOG.md` entry, push. The latest APK is always at:
+Bump `VERSION`, add a `CHANGELOG.md` entry, push. CI tests, builds the launcher from CleanYourTV, builds and signs the app, and publishes:
 
 https://github.com/skaterdav21/NuvioTizenInstaller/releases/latest/download/NuvioTizenInstaller.apk
 
-Needs repo secrets `SIGNING_KEYSTORE_B64` (base64 of the keystore, alias `nuviotizen`) and `SIGNING_PASSWORD`. Keep the same keystore so updates install over the top.
+## Credits
+
+Debloat lists and home screen: [CleanYourTV](https://github.com/Gathin23/cleanyourtv) (MIT). Nuvio Legacy: [iqui27/nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy). Nuvio: [NuvioMedia](https://github.com/NuvioMedia). Font: Archivo (OFL).

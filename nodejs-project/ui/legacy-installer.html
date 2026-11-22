@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Nuvio TV Installer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0b0c;
+      --panel: #161618;
+      --panel-2: #1e1e21;
+      --border: rgba(255, 255, 255, 0.09);
+      --text: #f4f4f5;
+      --muted: #a1a1aa;
+      --accent: #ffffff;
+      --success: #34d399;
+      --error: #f87171;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+      max-width: 640px;
+      margin: 0 auto;
+    }
+    header { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 18px; }
+    header img { height: 30px; }
+    header span { color: var(--muted); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+    details summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
+    details summary::-webkit-details-marker { display: none; }
+    details summary::after { content: "▾"; color: var(--muted); }
+    details[open] summary::after { content: "▴"; }
+    details summary h2 { margin: 0; }
+    ol { margin: 12px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    ol strong { color: var(--text); }
+    .ip-box {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px 12px; margin-top: 12px;
+    }
+    .ip-box .label { color: var(--muted); font-size: 12px; }
+    .ip-box .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+    input, select {
+      width: 100%; font: inherit; font-size: 16px; color: var(--text);
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px; outline: none;
+    }
+    input:focus, select:focus { border-color: rgba(255, 255, 255, 0.35); }
+    .field { margin-bottom: 14px; }
+    .file-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
+    .file-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    button {
+      font: inherit; font-weight: 600; font-size: 16px; border-radius: 14px; border: 1px solid var(--border);
+      padding: 14px; width: 100%; color: var(--text); background: var(--panel-2);
+    }
+    button.primary { background: var(--accent); color: #0b0b0c; border-color: transparent; }
+    button.small { width: auto; padding: 8px 12px; font-size: 13px; border-radius: 10px; }
+    button:disabled { opacity: 0.45; }
+    .actions { display: grid; gap: 10px; }
+    .status { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); min-height: 20px; margin-bottom: 10px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+    .status.busy .dot { background: var(--warn); animation: pulse 1.2s infinite; }
+    .status.ok .dot { background: var(--success); }
+    .status.err .dot { background: var(--error); }
+    @keyframes pulse { 50% { opacity: 0.3; } }
+    #log {
+      font-family: ui-monospace, "Roboto Mono", monospace; font-size: 12px; line-height: 1.5;
+      background: #080809; border: 1px solid var(--border); border-radius: 12px;
+      padding: 10px; height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+    }
+    #log .error { color: var(--error); }
+    #log .success { color: var(--success); }
+    #log .command { color: #93c5fd; }
+    #log .stderr { color: var(--warn); }
+    .log-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .log-head h2 { margin: 0; }
+    .hidden { display: none !important; }
+    .app-option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+    .app-option select { margin-top: 10px; background: var(--panel); }
+    .check { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--text); font-size: 16px; font-weight: 600; }
+    .check input { width: 22px; height: 22px; margin: 0; accent-color: #ffffff; }
+    .app-note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+    .launch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    #launch-legacy { grid-column: 1 / -1; }
+    .signin { border: 1px solid #ffffff55; border-radius: 12px; padding: 14px; margin: 12px 0; background: #ffffff0d; }
+    .signin p { font-size: 13px; color: var(--muted); margin: 6px 0 12px; line-height: 1.4; }
+    .signin a.button { display: block; text-align: center; text-decoration: none; padding: 12px; border-radius: 10px; background: #ffffff; color: #000; font-weight: 700; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="nuvio_wordmark.png" alt="Nuvio">
+    <span>Samsung TV Installer</span>
+  </header>
+
+  <section class="card">
+    <details id="setup" open>
+      <summary><h2>1 · Prepare the TV (one time)</h2></summary>
+      <ol>
+        <li>Connect the phone and the TV to the <strong>same Wi-Fi network</strong>.</li>
+        <li>On the TV, open <strong>Apps</strong>, then press <strong>1 2 3 4 5</strong> on the remote (or the on-screen number pad).</li>
+        <li>Turn <strong>Developer Mode</strong> on and enter this phone's IP below as <strong>Host PC IP</strong>.</li>
+        <li>Restart the TV: <strong>hold the Power button</strong> until the Samsung logo appears.</li>
+        <li>Find the TV's IP in <strong>Settings → General → Network → Network Status → IP Settings</strong>.</li>
+      </ol>
+      <div class="ip-box">
+        <div>
+          <div class="label">Host PC IP (this phone)</div>
+          <div class="value" id="phone-ip">…</div>
+        </div>
+        <button class="small" id="copy-ip">Copy</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>2 · Install apps</h2>
+    <div class="field">
+      <label for="tv-ip">TV IP address</label>
+      <input id="tv-ip" inputmode="decimal" autocomplete="off" placeholder="192.168.1.50">
+    </div>
+    <div class="app-option">
+      <label class="check"><input type="checkbox" id="pick-legacy" checked><span>Nuvio Legacy (native, fast)</span></label>
+      <select id="legacy-variant" aria-label="Nuvio Legacy build">
+        <option value="auto">Auto-detect TV version</option>
+        <option value="40">2018-2020 TV (Tizen 4 / 5 / 5.5)</option>
+        <option value="60">2021 TV (Tizen 6)</option>
+        <option value="65">2022-2023 TV (Tizen 6.5 / 7)</option>
+        <option value="80">2024+ TV (Tizen 8 / 9)</option>
+      </select>
+      <div class="app-note">Latest release from iqui27/nuvio-native-legacy. Written in C with no web engine, so it runs much faster than the web app on older TVs. Installs next to regular Nuvio.</div>
+    </div>
+    <div class="app-option">
+      <label class="check"><input type="checkbox" id="pick-nuvio"><span>Nuvio (web app)</span></label>
+      <select id="version" aria-label="Nuvio version"><option value="">Loading releases…</option></select>
+      <div class="file-row hidden" id="file-row">
+        <span id="file-name"></span>
+        <button class="small" id="clear-file">Clear</button>
+      </div>
+      <input type="file" id="file-input" accept=".wgt" hidden>
+    </div>
+    <div class="app-option">
+      <label class="check"><input type="checkbox" id="pick-plex"><span>Plex</span></label>
+      <div class="app-note">SamSUCKS-based Plex client, built into this app · needs a 2022+ TV (Tizen 6.5)</div>
+    </div>
+    <div class="signin hidden" id="signin">
+      <strong>Samsung sign-in needed</strong>
+      <p>Sign in once so Samsung can issue this TV's certificate. After signing in, come back to this app; the install continues by itself.</p>
+      <a class="button primary" id="signin-chrome" href="#">Sign in with Chrome</a>
+      <div class="launch-row" style="margin-top:8px">
+        <button class="small" id="signin-inapp">Use in-app sign-in</button>
+        <button class="small" id="signin-copy">Copy link</button>
+      </div>
+    </div>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">Ready</span></div>
+    <div class="actions">
+      <button class="primary" id="install">Install / Update selected</button>
+      <div class="launch-row">
+        <button id="launch-legacy">Launch Legacy</button>
+        <button id="launch-nuvio">Launch Nuvio</button>
+        <button id="launch-plex">Launch Plex</button>
+      </div>
+    </div>
+    <p class="hint">The first install asks you to sign in with a Samsung account once. Samsung issues a signing certificate tied to your TV, and both apps use it. It's saved on this phone for future updates.</p>
+  </section>
+
+  <section class="card">
+    <h2>Prepare ahead</h2>
+    <div class="status" id="prep-status"><span class="dot"></span><span id="prep-status-text">Not prepared yet</span></div>
+    <button id="prepare">Download &amp; pre-sign selected apps now</button>
+    <label class="check" style="margin-top:12px;font-size:14px;font-weight:500"><input type="checkbox" id="auto-prepare" checked><span>Prepare automatically when this app opens</span></label>
+    <p class="hint">Downloads the newest builds and signs them with your saved TV certificates at home, so at the TV, Install only has to connect, upload and install. Uses about 40 MB per Nuvio Legacy update, so open the app on Wi-Fi.</p>
+  </section>
+
+  <section class="card">
+    <h2>Samsung CA files</h2>
+    <div class="status" id="ca-status"><span class="dot"></span><span id="ca-status-text">Checking…</span></div>
+    <div class="launch-row">
+      <button id="ca-copy">Copy download link</button>
+      <button id="ca-load">Load zip…</button>
+    </div>
+    <input type="file" id="ca-file" accept=".zip,application/zip" hidden>
+    <p class="hint">Needed once, before the first certificate is created. If the installer can't download them itself, copy the link, open it in Chrome, then load the downloaded zip here.</p>
+  </section>
+
+  <section class="card">
+    <h2>3 · Certificate backup</h2>
+    <div class="status" id="cert-status"><span class="dot"></span><span id="cert-status-text">Checking…</span></div>
+    <div class="field">
+      <label for="cert-pass">Backup passphrase</label>
+      <input id="cert-pass" type="password" autocomplete="new-password" placeholder="At least 6 characters">
+    </div>
+    <div class="launch-row">
+      <button id="cert-backup">Back up…</button>
+      <button id="cert-restore">Restore…</button>
+    </div>
+    <input type="file" id="cert-file" accept=".json,application/json" hidden>
+    <p class="hint">The certificate lets this phone update the apps on the TV later. Save the backup somewhere safe, like Google Drive. It's encrypted with your passphrase, and without the passphrase it can't be restored.</p>
+  </section>
+
+  <section class="card">
+    <div class="log-head">
+      <h2>Log</h2>
+      <button class="small" id="copy-log">Copy log</button>
+    </div>
+    <div id="log"></div>
+  </section>
+
+  <script>
+    const token = new URLSearchParams(location.search).get("t") || "";
+    const bridge = window.AndroidBridge || null;
+    const $ = (id) => document.getElementById(id);
+    const logEl = $("log");
+    const LOCAL_FILE = "__local_file__";
+    let localPackagePath = "";
+    let busy = false;
+
+    function store(key, value) {
+      try { localStorage.setItem(key, value); } catch {}
+    }
+    function load(key) {
+      try { return localStorage.getItem(key) || ""; } catch { return ""; }
+    }
+
+    async function invoke(channel, ...args) {
+      const response = await fetch(`/api/invoke?t=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel, args })
+      });
+      const body = await response.json();
+      if (body.error) throw new Error(body.error);
+      return body.result;
+    }
+
+    function appendLog(text, type = "info") {
+      const line = document.createElement("div");
+      line.className = type;
+      line.textContent = String(text).replace(/\s+$/, "");
+      if (!line.textContent) return;
+      const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+      logEl.appendChild(line);
+      if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function setStatus(text, kind = "") {
+      $("status").className = `status ${kind}`;
+      $("status-text").textContent = text;
+    }
+
+    function setBusy(value) {
+      busy = value;
+      for (const id of ["install", "launch-legacy", "launch-nuvio", "launch-plex", "version", "legacy-variant", "pick-legacy", "pick-nuvio", "pick-plex"]) {
+        $(id).disabled = value;
+      }
+      if (!value) {
+        $("version").disabled = !$("pick-nuvio").checked;
+        $("legacy-variant").disabled = !$("pick-legacy").checked;
+      }
+      bridge?.keepScreenOn(value);
+    }
+
+    function copy(text) {
+      if (bridge) bridge.copyText(text);
+      else navigator.clipboard?.writeText(text);
+    }
+
+    let signinUrl = "";
+    function showSignin(url) {
+      signinUrl = url;
+      // Links that leave the app open in the phone's browser (Chrome), which then
+      // returns the login to this app on localhost:4794. The in-app WebView is kept as a fallback.
+      $("signin-chrome").href = url;
+      $("signin").classList.remove("hidden");
+      appendLog("Samsung sign-in needed. Tap \"Sign in with Chrome\", sign in, then come back here.", "info");
+      setStatus("Waiting for Samsung sign-in (tap Sign in with Chrome)", "busy");
+      $("signin").scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    function hideSignin() {
+      $("signin").classList.add("hidden");
+    }
+    $("signin-chrome").addEventListener("click", (event) => {
+      if (!bridge) { event.preventDefault(); window.open(signinUrl, "_blank"); }
+      appendLog("Opened Samsung sign-in in Chrome.", "info");
+    });
+    $("signin-inapp").addEventListener("click", () => { if (bridge) bridge.openLogin(signinUrl); else window.open(signinUrl, "_blank"); });
+    $("signin-copy").addEventListener("click", () => { copy(signinUrl); appendLog("Sign-in link copied. Paste it into Chrome.", "info"); });
+
+    function connectEvents() {
+      const source = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
+      source.onmessage = (message) => {
+        const { channel, payload } = JSON.parse(message.data);
+        if (channel === "installer:log") {
+          appendLog(payload.text, payload.type);
+          if (/certificate created|Samsung login timed out/i.test(payload.text || "")) hideSignin();
+          if (busy && payload.type === "info") setStatus(payload.text.slice(0, 90), "busy");
+        } else if (channel === "installer:openExternal") {
+          showSignin(payload.url);
+        } else if (channel === "installer:clipboard") {
+          copy(payload.text);
+        }
+      };
+    }
+
+    function refreshPhoneIp() {
+      const ip = (bridge && bridge.getWifiIp()) || "";
+      $("phone-ip").textContent = ip || "Not on Wi-Fi";
+      return ip;
+    }
+
+    async function loadReleases() {
+      const select = $("version");
+      try {
+        const releases = await invoke("installer:getRecentReleases", "samsung");
+        select.innerHTML = "";
+        releases.forEach((release, index) => {
+          const option = document.createElement("option");
+          option.value = String(release.id);
+          option.textContent = `${release.tagName}${index === 0 ? " (latest)" : ""}${release.prerelease ? " · pre-release" : ""}`;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        select.innerHTML = '<option value="">Latest release</option>';
+        appendLog(`Could not list releases: ${error.message}`, "stderr");
+      }
+      const fileOption = document.createElement("option");
+      fileOption.value = LOCAL_FILE;
+      fileOption.textContent = "Choose a .wgt file on this phone…";
+      select.appendChild(fileOption);
+    }
+
+    async function uploadFile(file) {
+      setStatus(`Preparing ${file.name}…`, "busy");
+      const response = await fetch(`/api/upload?t=${encodeURIComponent(token)}&name=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        body: file
+      });
+      const body = await response.json();
+      if (body.error) throw new Error(body.error);
+      localPackagePath = body.path;
+      $("file-name").textContent = file.name;
+      $("file-row").classList.remove("hidden");
+      setStatus("Ready");
+    }
+
+    $("version").addEventListener("change", () => {
+      if ($("version").value === LOCAL_FILE) $("file-input").click();
+    });
+
+    $("file-input").addEventListener("change", async () => {
+      const file = $("file-input").files[0];
+      $("file-input").value = "";
+      if (!file) {
+        if (!localPackagePath) $("version").selectedIndex = 0;
+        return;
+      }
+      try {
+        await uploadFile(file);
+      } catch (error) {
+        appendLog(error.message, "error");
+        setStatus("Could not load file", "err");
+        $("version").selectedIndex = 0;
+      }
+    });
+
+    $("clear-file").addEventListener("click", () => {
+      localPackagePath = "";
+      $("file-row").classList.add("hidden");
+      $("version").selectedIndex = 0;
+    });
+
+    $("copy-ip").addEventListener("click", () => copy($("phone-ip").textContent));
+    $("copy-log").addEventListener("click", () => copy(logEl.innerText));
+    $("tv-ip").addEventListener("change", () => store("tvIp", $("tv-ip").value.trim()));
+
+    function readTvIp() {
+      const ip = $("tv-ip").value.trim();
+      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+        setStatus("Enter the TV's IP address", "err");
+        $("tv-ip").focus();
+        return "";
+      }
+      store("tvIp", ip);
+      return ip;
+    }
+
+    const appLabels = { legacy: "Nuvio Legacy", nuvio: "Nuvio", plex: "Plex" };
+    const appLabel = (app) => appLabels[app] || app;
+
+    async function runOne(app, action, ip) {
+      const useFile = app === "nuvio" && $("version").value === LOCAL_FILE;
+      const label = appLabel(app);
+      appendLog(`── ${action === "launch" ? "Launching" : "Installing"} ${label} ──`, "success");
+      setStatus(`${action === "launch" ? "Launching" : "Installing"} ${label}…`, "busy");
+      const result = await invoke("installer:run", {
+        platform: "samsung",
+        action,
+        options: {
+          app,
+          ip,
+          mode: "simple",
+          packagePath: useFile ? localPackagePath : "",
+          releaseId: app === "nuvio" && !useFile ? $("version").value : "",
+          legacyVariant: app === "legacy" ? $("legacy-variant").value : "",
+          samsungCert: { auto: true }
+        }
+      });
+      return result && result.ok ? "" : ((result && result.error) || "Failed");
+    }
+
+    async function run(action, apps) {
+      const ip = readTvIp();
+      if (!ip) return;
+      if (apps.length === 0) {
+        setStatus("Select at least one app", "err");
+        return;
+      }
+      if (apps.includes("nuvio") && action === "install" && $("version").value === LOCAL_FILE && !localPackagePath) {
+        setStatus("Choose a .wgt file first", "err");
+        return;
+      }
+      const phoneIp = refreshPhoneIp();
+      if (phoneIp) appendLog(`This phone's IP is ${phoneIp}. It must match Host PC IP on the TV.`, "info");
+
+      setBusy(true);
+      const failures = [];
+      try {
+        // One at a time: the first install creates the Samsung certificate, the next reuses it.
+        for (const app of apps) {
+          try {
+            const error = await runOne(app, action, ip);
+            if (error) failures.push(`${appLabel(app)}: ${error}`);
+          } catch (error) {
+            appendLog(error.message, "error");
+            failures.push(`${appLabel(app)}: ${error.message}`);
+          }
+        }
+      } finally {
+        setBusy(false);
+        hideSignin();
+      }
+      if (action === "install") { refreshCertStatus(failures.length < apps.length); refreshCaStatus(); }
+      const names = apps.map(appLabel).join(" and ");
+      if (failures.length === 0) {
+        setStatus(action === "launch" ? `Launched ${names}` : `${names} installed on the TV`, "ok");
+      } else {
+        const messages = failures.map((failure) => failure.replace(/^\w+: /, ""));
+        const sameError = messages.every((message) => message === messages[0]);
+        setStatus(sameError ? messages[0] : failures.join(" · "), "err");
+      }
+    }
+
+    function selectedApps() {
+      return ["legacy", "nuvio", "plex"].filter((app) => $(`pick-${app}`).checked);
+    }
+
+    $("pick-nuvio").addEventListener("change", () => { $("version").disabled = !$("pick-nuvio").checked; });
+    $("install").addEventListener("click", () => run("install", selectedApps()));
+    $("pick-legacy").addEventListener("change", () => { $("legacy-variant").disabled = !$("pick-legacy").checked; });
+    $("legacy-variant").addEventListener("change", () => store("legacyVariant", $("legacy-variant").value));
+    $("launch-legacy").addEventListener("click", () => run("launch", ["legacy"]));
+    $("launch-nuvio").addEventListener("click", () => run("launch", ["nuvio"]));
+    $("launch-plex").addEventListener("click", () => run("launch", ["plex"]));
+
+    async function refreshCertStatus(justInstalled = false) {
+      try {
+        const { tvCount } = await invoke("certs:status");
+        if (tvCount === 0) {
+          $("cert-status").className = "status";
+          $("cert-status-text").textContent = "No certificates yet. One is created on the first install.";
+        } else {
+          $("cert-status").className = justInstalled ? "status busy" : "status ok";
+          $("cert-status-text").textContent = `Certificate saved for ${tvCount} TV${tvCount === 1 ? "" : "s"}`
+            + (justInstalled ? ". Back it up now." : "");
+        }
+      } catch (error) {
+        $("cert-status-text").textContent = error.message;
+      }
+    }
+
+    function certMessage(text, kind) {
+      $("cert-status").className = `status ${kind}`;
+      $("cert-status-text").textContent = text;
+    }
+
+    window.onFileSaved = (saved) => {
+      if (saved) {
+        certMessage("Backup saved.", "ok");
+        appendLog("Certificate backup saved.", "success");
+      } else {
+        certMessage("Backup not saved.", "err");
+      }
+    };
+
+    $("cert-backup").addEventListener("click", async () => {
+      try {
+        const { fileName, text, tvCount } = await invoke("certs:export", $("cert-pass").value);
+        appendLog(`Exporting certificates for ${tvCount} TV${tvCount === 1 ? "" : "s"}.`, "info");
+        if (bridge) {
+          bridge.saveFile(fileName, text);
+        } else {
+          const link = document.createElement("a");
+          link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+          link.download = fileName;
+          link.click();
+        }
+      } catch (error) {
+        certMessage(error.message, "err");
+      }
+    });
+
+    $("cert-restore").addEventListener("click", () => {
+      if ($("cert-pass").value.length < 6) {
+        certMessage("Enter the backup's passphrase first.", "err");
+        $("cert-pass").focus();
+        return;
+      }
+      $("cert-file").click();
+    });
+
+    $("cert-file").addEventListener("change", async () => {
+      const file = $("cert-file").files[0];
+      $("cert-file").value = "";
+      if (!file) return;
+      try {
+        const result = await invoke("certs:import", $("cert-pass").value, await file.text());
+        certMessage(`Restored. Certificate saved for ${result.tvCount} TV${result.tvCount === 1 ? "" : "s"}.`, "ok");
+        appendLog(`Restored ${result.restored} certificate file(s) from backup.`, "success");
+      } catch (error) {
+        certMessage(error.message, "err");
+      }
+    });
+
+    async function refreshCaStatus() {
+      try {
+        const ca = await invoke("samsungca:status");
+        $("ca-status").className = ca.installed ? "status ok" : "status";
+        $("ca-status-text").textContent = ca.installed ? "Installed" : "Not installed yet";
+        $("ca-copy").dataset.url = ca.downloadUrl;
+      } catch (error) {
+        $("ca-status-text").textContent = error.message;
+      }
+    }
+
+    $("ca-copy").addEventListener("click", () => {
+      copy($("ca-copy").dataset.url || "https://download.tizen.org/sdk/extensions/tizen-certificate-extension_2.0.75.zip");
+      appendLog("Download link copied. Paste it into Chrome, let it finish, then tap Load zip.", "info");
+    });
+    $("ca-load").addEventListener("click", () => $("ca-file").click());
+    $("ca-file").addEventListener("change", async () => {
+      const file = $("ca-file").files[0];
+      $("ca-file").value = "";
+      if (!file) return;
+      try {
+        $("ca-status").className = "status busy";
+        $("ca-status-text").textContent = `Reading ${file.name}…`;
+        const response = await fetch(`/api/upload?t=${encodeURIComponent(token)}&name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+        const body = await response.json();
+        if (body.error) throw new Error(body.error);
+        const result = await invoke("samsungca:import", body.path);
+        appendLog(`Samsung CA files installed (${result.imported} files). Run the install again.`, "success");
+      } catch (error) {
+        appendLog(error.message, "error");
+      }
+      refreshCaStatus();
+    });
+
+    $("tv-ip").value = load("tvIp");
+    if (load("legacyVariant")) $("legacy-variant").value = load("legacyVariant");
+    if (load("tvIp")) $("setup").open = false;
+    refreshPhoneIp();
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshPhoneIp(); });
+    connectEvents();
+    loadReleases();
+    refreshCertStatus();
+    refreshCaStatus();
+
+    let preparing = false;
+    function setPrepStatus(text, kind = "") {
+      $("prep-status").className = `status ${kind}`;
+      $("prep-status-text").textContent = text;
+    }
+    async function prepare(quiet = false) {
+      if (preparing) return;
+      const apps = selectedApps();
+      if (apps.length === 0) { if (!quiet) setPrepStatus("Select at least one app above", "err"); return; }
+      preparing = true;
+      $("prepare").disabled = true;
+      setPrepStatus("Preparing… (progress in the log)", "busy");
+      try {
+        const useFile = $("version").value === LOCAL_FILE;
+        const summary = await invoke("installer:prefetch", {
+          apps: apps.filter((app) => !(app === "nuvio" && useFile)),
+          ip: $("tv-ip").value.trim(),
+          legacyVariant: $("legacy-variant").value,
+          releaseId: useFile ? "" : $("version").value
+        });
+        const stamp = new Date().toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        if (summary.errors.length) {
+          setPrepStatus(summary.errors[0], "err");
+        } else {
+          const signedNote = summary.certificates ? "downloaded and pre-signed" : "downloaded (signing happens on first install)";
+          const text = `Ready · ${signedNote} · ${stamp}`;
+          setPrepStatus(text, "ok");
+          store("prepStatus", text);
+        }
+      } catch (error) {
+        setPrepStatus(error.message, "err");
+      } finally {
+        preparing = false;
+        $("prepare").disabled = false;
+      }
+    }
+    $("prepare").addEventListener("click", () => prepare(false));
+    $("auto-prepare").checked = load("autoPrepare") !== "off";
+    $("auto-prepare").addEventListener("change", () => store("autoPrepare", $("auto-prepare").checked ? "on" : "off"));
+    if (load("prepStatus")) setPrepStatus(load("prepStatus"), "ok");
+    if ($("auto-prepare").checked) setTimeout(() => prepare(true), 2500);
+  </script>
+</body>
+</html>

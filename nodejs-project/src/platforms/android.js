@@ -1,0 +1,429 @@
+// Android TV / Google TV / Fire TV setup over ADB: inspect a TV, build a plan, run it, undo it.
+"use strict";
+
+const fsp = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const adbLib = require("../core/adb");
+const assets = require("../core/assets");
+const store = require("../core/store");
+const debloat = require("./debloat");
+
+const LAUNCHER_PKG = "com.gathin.tvhome";
+const LAUNCHER_ACTIVITY = `${LAUNCHER_PKG}/.MainActivity`;
+const HOME_QUERY = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+const CLAIM_QUERY = "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+
+let keyDir = path.join(os.tmpdir(), "tvsetup-adb");
+function init(userDataDir) {
+  keyDir = path.join(userDataDir, "tvsetup", "adb");
+}
+
+// ---- Connections (kept open between Inspect and Run) ------------------------------------
+
+const connections = new Map();
+
+async function getConnection(ip, { onAuthPrompt } = {}) {
+  const existing = connections.get(ip);
+  if (existing && !existing.adb.closed) {
+    existing.lastUsed = Date.now();
+    return existing.adb;
+  }
+  const [host, port] = String(ip).split(":");
+  const adb = await adbLib.connect(host, { port: Number(port) || 5555, keyDir, onAuthPrompt });
+  connections.set(ip, { adb, lastUsed: Date.now() });
+  adb.on("closed", () => connections.delete(ip));
+  return adb;
+}
+
+setInterval(() => {
+  for (const [ip, entry] of connections) {
+    if (Date.now() - entry.lastUsed > 10 * 60 * 1000) { entry.adb.close(); connections.delete(ip); }
+  }
+}, 60 * 1000).unref?.();
+
+// ---- Inspect --------------------------------------------------------------------------
+
+async function readDevice(adb) {
+  const props = ["ro.product.manufacturer", "ro.product.brand", "ro.product.model", "ro.product.device", "ro.product.name",
+    "ro.build.version.sdk", "ro.build.version.release", "ro.product.cpu.abilist", "ro.serialno", "ro.boot.serialno", "ro.adb.secure",
+    "ro.build.characteristics", "ro.product.first_api_level"];
+  const out = await adb.shell(props.map((prop) => `echo "@@${prop}=$(getprop ${prop})"`).join("; "));
+  const info = {};
+  for (const line of out.split("\n")) {
+    const match = line.match(/^@@([^=]+)=(.*)$/);
+    if (match) info[match[1]] = match[2].trim();
+  }
+  const [allText, disabledText, memText, homeText, dfText] = await Promise.all([
+    adb.shell("pm list packages 2>/dev/null", 60000),
+    adb.shell("pm list packages -d 2>/dev/null", 60000),
+    adb.shell("grep MemTotal /proc/meminfo"),
+    adb.shell(`${HOME_QUERY} 2>/dev/null | tail -n 1`),
+    adb.shell("df /data 2>/dev/null | tail -n 1")
+  ]);
+  const parse = (text) => new Set(text.split("\n").map((line) => line.replace(/^package:/, "").trim()).filter(Boolean));
+  const packages = parse(allText);
+  const disabled = parse(disabledText);
+  const memKb = Number((memText.match(/(\d+)/) || [])[1] || 0);
+  const abis = (info["ro.product.cpu.abilist"] || "").split(",").map((item) => item.trim());
+  const dfParts = dfText.trim().split(/\s+/);
+  const freeKb = Number(dfParts[3] || 0);
+  const isFire = /amazon/i.test(info["ro.product.manufacturer"]) || packages.has("com.amazon.tv.launcher");
+  const isGoogleTv = packages.has("com.google.android.apps.tv.launcherx");
+  return {
+    manufacturer: info["ro.product.manufacturer"] || "",
+    brand: info["ro.product.brand"] || "",
+    model: info["ro.product.model"] || "",
+    device: info["ro.product.device"] || "",
+    product: info["ro.product.name"] || "",
+    sdk: Number(info["ro.build.version.sdk"] || 0),
+    android: info["ro.build.version.release"] || "",
+    serial: info["ro.serialno"] || info["ro.boot.serialno"] || "",
+    adbSecure: info["ro.adb.secure"],
+    abi: abis.includes("arm64-v8a") ? "arm64" : "armv7",
+    memMb: Math.round(memKb / 1024),
+    freeMb: Math.round(freeKb / 1024),
+    homeOwner: homeText.trim().split("/")[0],
+    packages,
+    disabled,
+    isFire,
+    isGoogleTv,
+    os: isFire ? "Fire OS" : isGoogleTv ? `Google TV ${info["ro.build.version.release"] || ""}`.trim() : `Android TV ${info["ro.build.version.release"] || ""}`.trim()
+  };
+}
+
+function recommendNuvio(device) {
+  // The official app is the full experience; the native lite build is far lighter on RAM.
+  if (device.memMb && device.memMb < 1700) return "nuvio-legacy-android";
+  if (device.isFire && device.memMb < 2200) return "nuvio-legacy-android";
+  return "nuvio-official";
+}
+
+function defaultHomeMode(device) {
+  if (device.sdk && device.sdk < 26) return "none";
+  if (device.isFire) return "none";
+  // Google TV: taking Home fully means disabling the setup wizard, which breaks casting from phones.
+  if (device.isGoogleTv) return "redirect";
+  return "replace";
+}
+
+async function inspect({ ip, profile }, { onAuthPrompt } = {}) {
+  const adb = await getConnection(ip, { onAuthPrompt });
+  const device = await readDevice(adb);
+  const plan = debloat.buildPlan(device);
+  const nuvioInstalled = ["com.nuvio.tv", "space.nuvio.nativelegacy"].filter((pkg) => device.packages.has(pkg));
+  const deviceKey = `android-${device.serial || ip}`;
+  const undo = await store.getUndo(deviceKey);
+  const summary = {
+    platform: "android",
+    profile,
+    ip,
+    deviceKey,
+    name: `${device.manufacturer} ${device.model}`.trim(),
+    manufacturer: device.manufacturer,
+    model: device.model,
+    codename: device.device,
+    os: device.os,
+    sdk: device.sdk,
+    abi: device.abi,
+    memMb: device.memMb,
+    freeMb: device.freeMb,
+    isFire: device.isFire,
+    isGoogleTv: device.isGoogleTv,
+    homeOwner: device.homeOwner,
+    adbOpenWithoutPrompt: device.adbSecure === "0",
+    installed: {
+      nuvio: nuvioInstalled,
+      launcher: device.packages.has(LAUNCHER_PKG),
+      smarttube: device.packages.has("com.teamsmart.videomanager.tv"),
+      plex: device.packages.has("com.plexapp.android"),
+      youtube: device.packages.has("com.google.android.youtube.tv")
+    },
+    recommendations: {
+      nuvio: recommendNuvio(device),
+      homeMode: defaultHomeMode(device)
+    },
+    debloat: plan,
+    undoAvailable: Boolean(undo.disabled.length || undo.stockLauncher || undo.homeMode)
+  };
+  await store.saveDevice({
+    id: deviceKey, platform: "android", profile, ip, name: summary.name, model: device.model, serial: device.serial, os: summary.os, abi: device.abi
+  });
+  return summary;
+}
+
+// ---- Run ------------------------------------------------------------------------------
+
+function stepsFor(choices) {
+  const steps = [{ id: "connect", label: "Connect to the TV" }];
+  if (choices.nuvio && choices.nuvio !== "skip") steps.push({ id: "nuvio", label: "Install Nuvio" });
+  if (choices.smarttube) steps.push({ id: "smarttube", label: "Install SmartTube" });
+  if (choices.homeMode && choices.homeMode !== "none") steps.push({ id: "home", label: "Set up the clean home screen" });
+  if (choices.debloat?.length) steps.push({ id: "debloat", label: "Remove ads, tracking & bloat" });
+  if (choices.speed) steps.push({ id: "speed", label: "Speed tweaks" });
+  steps.push({ id: "finish", label: "Finish up" });
+  return steps;
+}
+
+function progressText(sent, total, started) {
+  const mb = (value) => `${(value / 1048576).toFixed(1)} MB`;
+  const seconds = Math.max(0.5, (Date.now() - started) / 1000);
+  return `${mb(sent)} of ${mb(total)} at ${mb(sent / seconds)}/s`;
+}
+
+async function installApk(adb, job, step, artifact, { replaceIncompatible = false, label }) {
+  step.detail(`Downloading ${label}…`);
+  const started = Date.now();
+  const file = await assets.get(artifact.id, artifact.variant, {
+    onProgress: (received, total) => total && step.progress(received / total * 0.4, `Downloading, ${progressText(received, total, started)}`)
+  });
+  if (file.offline) job.log(`Offline: using the downloaded ${file.name}.`);
+  const uploadStarted = Date.now();
+  let output = await adb.install(file.path, {
+    flags: "-r -g",
+    onProgress: (sent, total) => step.progress(0.4 + sent / total * 0.5, `Uploading to the TV, ${progressText(sent, total, uploadStarted)}`)
+  });
+  step.progress(0.95, "Installing on the TV…");
+  if (/INSTALL_FAILED_UPDATE_INCOMPATIBLE|signatures do not match/i.test(output)) {
+    if (!replaceIncompatible) {
+      return { status: "kept", detail: `A differently signed ${label} is already installed, so it was kept. Choose "Replace" to swap it (its settings will be reset).`, file };
+    }
+    job.log(`Replacing the existing ${label} (different signature).`);
+    await adb.shell(`pm uninstall ${file.package}`);
+    output = await adb.install(file.path, { flags: "-r -g" });
+  }
+  if (/INSTALL_FAILED_NO_MATCHING_ABIS/i.test(output) && artifact.variant === "arm64") {
+    job.log("This TV runs 32-bit apps; switching to the 32-bit build.");
+    return installApk(adb, job, step, { ...artifact, variant: "armv7" }, { replaceIncompatible, label });
+  }
+  if (/INSTALL_FAILED_INSUFFICIENT_STORAGE/i.test(output)) throw new Error("The TV is out of storage. Free some space and try again.");
+  if (!/Success/.test(output)) throw new Error(`The TV refused the install: ${output.split("\n").pop() || output}`);
+  return { status: "installed", detail: `${label} ${file.tag} installed`, file };
+}
+
+async function pushLauncherConfig(adb, config) {
+  const local = Buffer.from(JSON.stringify(config, null, 2));
+  const staged = "/data/local/tmp/tvsetup-config.json";
+  await adb.push(local, staged);
+  const dir = `/sdcard/Android/data/${LAUNCHER_PKG}/files`;
+  const out = await adb.shell(
+    `w=; o=$(content write --uri content://${LAUNCHER_PKG}.theme/config.json < ${staged} 2>&1) && case "$o" in *Unsupported*|*Error*) ;; *) w=1;; esac; ` +
+    `[ -n "$w" ] || { mkdir -p ${dir} 2>/dev/null; cp ${staged} ${dir}/config.json 2>/dev/null && w=1; }; rm -f ${staged}; [ -n "$w" ] && echo written || echo failed`
+  );
+  return out.includes("written");
+}
+
+async function enableAccessibilityService(adb, service) {
+  const component = `${LAUNCHER_PKG}/.${service}`;
+  const before = (await adb.shell("settings get secure enabled_accessibility_services")).trim();
+  const list = before && before !== "null" ? before.split(":").filter(Boolean) : [];
+  if (!list.includes(component)) list.push(component);
+  await adb.shell(`cmd appops set ${LAUNCHER_PKG} AUTO_START allow 2>/dev/null; settings put secure enabled_accessibility_services '${list.join(":")}'; settings put secure accessibility_enabled 1`);
+  return before;
+}
+
+async function setupHome(adb, job, step, device, choices, deviceKey, dockApps) {
+  if (device.sdk && device.sdk < 26) return "Skipped: this TV is older than Android 8, which the home screen needs.";
+  step.detail("Installing the home screen…");
+  const result = await installApk(adb, job, step, { id: "launcher" }, { label: "home screen", replaceIncompatible: true });
+  if (result.status !== "installed" && !device.packages.has(LAUNCHER_PKG)) throw new Error(result.detail);
+
+  const stock = await findStockLauncher(adb, device);
+  const config = {
+    dock_apps: dockApps,
+    fill_dock: true,
+    reduced_motion: device.memMb && device.memMb < 1700,
+    show_greeting: false
+  };
+  if (choices.homeMode === "redirect" && stock) {
+    config.stock_home_redirect = stock;
+    config.power_on_home_always = true;
+  }
+  step.detail("Setting up your dock…");
+  await adb.shell(`am start -W -n ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; true`);
+  const written = await pushLauncherConfig(adb, config);
+  if (!written) job.log("Couldn't write the dock layout; the home screen uses its defaults.");
+
+  await store.updateUndo(deviceKey, (undo) => ({ ...undo, stockLauncher: stock || undo.stockLauncher, homeMode: choices.homeMode }));
+
+  if (choices.homeMode === "replace" && stock) {
+    step.detail("Handing Home to the new screen…");
+    const start = await adb.shell(`am start -W -a android.intent.action.MAIN -c android.intent.category.HOME -n ${LAUNCHER_ACTIVITY}`);
+    if (!/Status: ok/.test(start) && /Error/i.test(start)) throw new Error("The new home screen didn't start, so nothing was changed.");
+    await adb.shell(`cmd package compile -m speed -f ${LAUNCHER_PKG} >/dev/null 2>&1; pm disable-user --user 0 ${stock} >/dev/null 2>&1; cmd package set-home-activity --user 0 ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; true`);
+    const now = (await adb.shell(`${HOME_QUERY} 2>/dev/null | tail -n 1`)).trim();
+    if (!now.startsWith(`${LAUNCHER_PKG}/`)) {
+      const claim = await adb.shell(`${CLAIM_QUERY} 2>/dev/null`);
+      if (now === "android" && claim.includes(`${LAUNCHER_PKG}/`)) {
+        job.log("Home shows Android's chooser with the new screen in it; keeping it.");
+      } else {
+        job.log(`Home went to ${now || "nothing"}; undoing and switching to the Home-button redirect instead.`);
+        await adb.shell(`pm enable --user 0 ${stock} >/dev/null 2>&1; true`);
+        config.stock_home_redirect = stock;
+        config.power_on_home_always = true;
+        await pushLauncherConfig(adb, config);
+        const previous = await enableAccessibilityService(adb, "HomeKeyService");
+        await store.updateUndo(deviceKey, (undo) => ({ ...undo, homeMode: "redirect", accessibility: undo.accessibility ?? previous }));
+        await adb.shell(`am start -W -n ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; true`);
+        return "Home button now opens the clean screen (the stock home stays as a fallback).";
+      }
+    }
+    return "The clean screen is now Home. The old one is turned off; Undo brings it back.";
+  }
+
+  if (choices.homeMode === "redirect") {
+    step.detail("Making the Home button open the clean screen…");
+    const previous = await enableAccessibilityService(adb, "HomeKeyService");
+    await store.updateUndo(deviceKey, (undo) => ({ ...undo, accessibility: undo.accessibility ?? previous }));
+    await adb.shell(`cmd package compile -m speed -f ${LAUNCHER_PKG} >/dev/null 2>&1; cmd package set-home-activity --user 0 ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; am start -W -n ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; true`);
+    return "Home button now opens the clean screen. Casting and the stock home keep working.";
+  }
+  return "Installed.";
+}
+
+async function findStockLauncher(adb, device) {
+  const owner = (await adb.shell(`${HOME_QUERY} 2>/dev/null | tail -n 1`)).trim().split("/")[0];
+  if (debloat.STOCK_LAUNCHERS.includes(owner)) return owner;
+  const claimants = (await adb.shell(`${CLAIM_QUERY} 2>/dev/null`)).split("\n").map((line) => (line.trim().match(/^([\w.]+)\//) || [])[1]).filter(Boolean);
+  const known = debloat.STOCK_LAUNCHERS.filter((pkg) => claimants.includes(pkg) && pkg !== "com.amazon.tv.launcher");
+  if (known.length === 1) return known[0];
+  return debloat.STOCK_LAUNCHERS.find((pkg) => device.packages.has(pkg) && !device.disabled.has(pkg)) || "";
+}
+
+async function run({ ip, profile, choices }, job) {
+  let adb;
+  let device;
+  let deviceKey;
+  const installedPackages = [];
+
+  await job.run("connect", async (step) => {
+    adb = await getConnection(ip, {
+      onAuthPrompt: () => step.waiting("On the TV, choose Allow on \"Allow USB debugging?\" and tick Always allow.")
+    });
+    device = await readDevice(adb);
+    deviceKey = `android-${device.serial || ip}`;
+    return `${device.manufacturer} ${device.model}, ${device.os}`;
+  });
+
+  if (choices.nuvio && choices.nuvio !== "skip") {
+    await job.run("nuvio", async (step) => {
+      if (choices.nuvio === "custom") {
+        if (!choices.customApk) throw new Error("Pick an APK file first.");
+        const output = await adb.install(choices.customApk, { flags: "-r -g", onProgress: (sent, total) => step.progress(sent / total, "Uploading…") });
+        if (!/Success/.test(output)) throw new Error(output.split("\n").pop());
+        return "Your Nuvio build is installed";
+      }
+      const result = await installApk(adb, job, step, { id: choices.nuvio, variant: device.abi }, { label: "Nuvio", replaceIncompatible: choices.replaceIncompatible });
+      installedPackages.push(result.file.package);
+      if (result.status === "kept") step.skip(result.detail);
+      return result.detail;
+    }, { optional: true });
+  }
+
+  if (choices.smarttube) {
+    await job.run("smarttube", async (step) => {
+      const result = await installApk(adb, job, step, { id: "smarttube", variant: device.abi }, { label: "SmartTube", replaceIncompatible: false });
+      installedPackages.push("com.teamsmart.videomanager.tv");
+      if (result.status === "kept") step.skip(result.detail);
+      return result.detail;
+    }, { optional: true });
+  }
+
+  if (choices.homeMode && choices.homeMode !== "none") {
+    const nuvioPkg = choices.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv";
+    const dock = [nuvioPkg, "com.nuvio.tv", "space.nuvio.nativelegacy", choices.smarttube ? "com.teamsmart.videomanager.tv" : "com.google.android.youtube.tv", "com.plexapp.android", "com.netflix.ninja"];
+    const dockApps = [...new Set(dock)].slice(0, 5);
+    await job.run("home", (step) => setupHome(adb, job, step, device, choices, deviceKey, dockApps), { optional: true });
+  }
+
+  if (choices.debloat?.length) {
+    await job.run("debloat", async (step) => {
+      step.detail("Running safety checks on the TV…");
+      const refreshed = await readDevice(adb);
+      const wanted = choices.debloat.filter((pkg) => refreshed.packages.has(pkg) && !refreshed.disabled.has(pkg));
+      const { list, skipped } = await debloat.guard(adb, wanted, (text) => job.log(text));
+      for (const item of skipped) job.log(`Kept ${item.pkg}: ${item.reason}.`);
+      if (!list.length) return skipped.length ? `Nothing safe to turn off (${skipped.length} kept for safety)` : "Nothing left to turn off";
+      const { done, failed } = await debloat.apply(adb, list, {
+        record: (batch) => store.updateUndo(deviceKey, (undo) => ({ ...undo, disabled: [...new Set([...undo.disabled, ...batch])] })),
+        onProgress: (count, total) => step.progress(count / total, `Turned off ${count} of ${total}`),
+        log: (text) => job.log(text)
+      });
+      return `Turned off ${done.length}${failed.length ? `, ${failed.length} refused by the TV` : ""}${skipped.length ? `, ${skipped.length} kept for safety` : ""}`;
+    }, { optional: true });
+  }
+
+  if (choices.speed) {
+    await job.run("speed", async (step) => {
+      const keys = ["window_animation_scale", "transition_animation_scale", "animator_duration_scale"];
+      const before = {};
+      for (const key of keys) before[key] = (await adb.shell(`settings get global ${key}`)).trim();
+      await store.updateUndo(deviceKey, (undo) => ({ ...undo, settings: { ...before, ...undo.settings } }));
+      await adb.shell(keys.map((key) => `settings put global ${key} 0.5`).join("; "));
+      const compileTargets = [...new Set([...installedPackages, LAUNCHER_PKG, "com.nuvio.tv", "space.nuvio.nativelegacy"])];
+      let index = 0;
+      for (const pkg of compileTargets) {
+        index += 1;
+        const present = (await adb.shell(`pm path ${pkg} 2>/dev/null`)).trim();
+        if (!present) continue;
+        step.progress(index / compileTargets.length, `Optimizing ${pkg}…`);
+        await adb.shell(`cmd package compile -m speed -f ${pkg} >/dev/null 2>&1; true`, 300000);
+      }
+      return "Faster animations, apps pre-compiled for speed";
+    }, { optional: true });
+  }
+
+  await job.run("finish", async () => {
+    await adb.shell(`am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1; true`);
+    await store.saveDevice({ id: deviceKey, platform: "android", profile, ip, name: `${device.manufacturer} ${device.model}`.trim(), model: device.model, serial: device.serial, lastSetup: Date.now(), choices: { ...choices, debloat: undefined } });
+    return "The TV is back on its home screen";
+  });
+  return { deviceKey };
+}
+
+// ---- Undo -----------------------------------------------------------------------------
+
+async function undo({ ip, deviceKey, removeLauncher = true }, job) {
+  let adb;
+  const record = await store.getUndo(deviceKey);
+  await job.run("connect", async (step) => {
+    adb = await getConnection(ip, { onAuthPrompt: () => step.waiting("On the TV, choose Allow on \"Allow USB debugging?\".") });
+    return "Connected";
+  });
+  await job.run("packages", async (step) => {
+    if (!record.disabled.length) return "Nothing was turned off";
+    await debloat.restore(adb, record.disabled, { onProgress: (count, total) => step.progress(count / total, `Turned back on ${count} of ${total}`) });
+    return `Turned back on ${record.disabled.length}`;
+  }, { optional: true });
+  await job.run("home", async () => {
+    if (record.stockLauncher) {
+      await adb.shell(`pm enable --user 0 ${record.stockLauncher} >/dev/null 2>&1; true`);
+      const activity = (await adb.shell(`cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME ${record.stockLauncher} 2>/dev/null | tail -n 1`)).trim();
+      if (activity.includes("/")) await adb.shell(`cmd package set-home-activity --user 0 ${activity} >/dev/null 2>&1; true`);
+    }
+    if (record.accessibility !== null && record.accessibility !== undefined) {
+      const value = record.accessibility && record.accessibility !== "null" ? record.accessibility : "";
+      await adb.shell(value ? `settings put secure enabled_accessibility_services '${value}'` : "settings delete secure enabled_accessibility_services");
+    }
+    if (removeLauncher) await adb.shell(`pm uninstall ${LAUNCHER_PKG} >/dev/null 2>&1; true`);
+    return record.stockLauncher ? `${record.stockLauncher} is Home again` : "Home unchanged";
+  }, { optional: true });
+  await job.run("settings", async () => {
+    const entries = Object.entries(record.settings || {});
+    for (const [key, value] of entries) {
+      await adb.shell(value && value !== "null" ? `settings put global ${key} ${value}` : `settings delete global ${key}`);
+    }
+    return entries.length ? "Animation speed restored" : "Nothing to restore";
+  }, { optional: true });
+  await store.clearUndo(deviceKey);
+  await adb.shell("am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1; true").catch(() => {});
+  return { restored: true };
+}
+
+async function launch({ ip, pkg }) {
+  const adb = await getConnection(ip);
+  await adb.shell(`monkey -p ${pkg} -c android.intent.category.LEANBACK_LAUNCHER 1 >/dev/null 2>&1 || monkey -p ${pkg} -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1; true`);
+  return true;
+}
+
+module.exports = { init, inspect, run, undo, launch, stepsFor, readDevice, getConnection, LAUNCHER_PKG };

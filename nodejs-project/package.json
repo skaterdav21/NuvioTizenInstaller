@@ -2,7 +2,7 @@
   "name": "nuvio-tv-installer-android-node",
   "version": "1.0.0",
   "private": true,
-  "description": "Node side of the Nuvio TV Installer Android port (Samsung Tizen).",
+  "description": "Node side of TV Setup: Samsung Tizen, LG webOS and Android TV setup from a phone.",
   "main": "server.js",
   "license": "GPL-3.0",
   "dependencies": {
@@ -10,6 +10,7 @@
     "adbhost": "^0.0.2",
     "jszip": "^3.10.1",
     "node-forge": "^1.3.1",
-    "tizen": "file:vendor/tizen.js"
+    "tizen": "file:vendor/tizen.js",
+    "ssh2": "1.16.0"
   }
 }

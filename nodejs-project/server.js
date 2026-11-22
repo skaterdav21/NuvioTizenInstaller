@@ -41,6 +41,13 @@ function broadcast(channel, payload) {
 
 bus.on("message", broadcast);
 
+// TV Setup: multi-platform engine (Samsung, LG, Android TV, Fire TV).
+require("./src/app-handlers").register(handlers, {
+  userDataDir: app.getPath("userData"),
+  bundledDir: path.join(__dirname, "bundled"),
+  broadcast
+});
+
 const fakeEvent = {
   sender: {
     send: broadcast
@@ -52,7 +59,8 @@ const contentTypes = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".png": "image/png",
-  ".svg": "image/svg+xml"
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2"
 };
 
 function readBody(request, limitBytes) {
@@ -96,8 +104,8 @@ async function handleInvoke(request, response) {
 async function handleUpload(request, response) {
   const url = new URL(request.url, "http://127.0.0.1");
   const name = path.basename(String(url.searchParams.get("name") || "package.wgt")).replace(/[^a-z0-9._-]+/gi, "_");
-  if (!/\.(wgt|tpk|p12|pfx|zip)$/i.test(name)) {
-    sendJson(response, 400, { error: "Only .wgt, .p12, .pfx or .zip files can be selected." });
+  if (!/\.(wgt|tpk|apk|ipk|p12|pfx|zip)$/i.test(name)) {
+    sendJson(response, 400, { error: "Only .apk, .ipk, .wgt, .tpk, .p12, .pfx or .zip files can be selected." });
     return;
   }
   const body = await readBody(request, 300 * 1024 * 1024);

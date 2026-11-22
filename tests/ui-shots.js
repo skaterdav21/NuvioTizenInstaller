@@ -1,0 +1,47 @@
+// Drives the real app server (with a mock Shield) in a phone-sized headless browser and screenshots each view.
+"use strict";
+const { chromium } = require("/opt/npm-tools/node_modules/playwright");
+const { spawn } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+(async () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), "uishots-"));
+  const out = process.argv[2] || "/tmp/shots";
+  // Seed a cached Nuvio release so the run works without GitHub (the sandbox blocks the API).
+  const relDir = path.join(data, "packages", "NuvioMedia__NuvioTV", "1.0.0");
+  fs.mkdirSync(relDir, { recursive: true });
+  fs.writeFileSync(path.join(relDir, "app-full-arm64-v8a-release.apk"), Buffer.concat([Buffer.from("com.nuvio.tv".padEnd(40)), require("node:crypto").randomBytes(3 << 20)]));
+  fs.writeFileSync(path.join(data, "packages", "releases.json"), JSON.stringify({ "NuvioMedia/NuvioTV": { tag: "1.0.0", assets: [{ name: "app-full-arm64-v8a-release.apk", url: "https://invalid/", size: 0 }] } }));
+  fs.mkdirSync(out, { recursive: true });
+  const mockProc = spawn(process.execPath, [path.join(__dirname, "run-mock-shield.js")], { stdio: "inherit" });
+  const server = spawn(process.execPath, ["server.js"], { cwd: path.join(__dirname, "..", "nodejs-project"), env: { ...process.env, NUVIO_DATA_DIR: data, NUVIO_UI_PORT: "4799", NUVIO_TOKEN: "tok" }, stdio: ["ignore", "inherit", "inherit"] });
+  await new Promise((r) => setTimeout(r, 2500));
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 400, height: 860 }, deviceScaleFactor: 2 });
+  page.on("pageerror", (e) => console.log("PAGE ERROR", e.message));
+  await page.goto("http://127.0.0.1:4799/?t=tok");
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${out}/1-home.png`, fullPage: true });
+  await page.click("#ok"); await page.waitForTimeout(300);
+  await page.screenshot({ path: `${out}/2-pick.png`, fullPage: true });
+  await page.click('[data-profile="shield"]'); await page.waitForTimeout(300);
+  await page.fill("#ip", "127.0.0.1:25556"); await page.dispatchEvent("#ip", "change"); await page.waitForTimeout(800);
+  await page.screenshot({ path: `${out}/3-connect.png`, fullPage: true });
+  await page.click("#ok"); await page.waitForTimeout(3000);
+  await page.screenshot({ path: `${out}/4-plan.png`, fullPage: true });
+  await page.click("#review-btn"); await page.waitForTimeout(400);
+  await page.screenshot({ path: `${out}/5-review.png`, fullPage: false });
+  await page.click("#sheet-done"); await page.waitForTimeout(300);
+  await page.click("#ok"); await page.waitForTimeout(900);
+  await page.screenshot({ path: `${out}/6-running.png`, fullPage: true });
+  await page.waitForFunction(() => /DONE/.test(document.getElementById("ok").textContent), null, { timeout: 120000 }).catch(() => {});
+  await page.screenshot({ path: `${out}/7-done.png`, fullPage: true });
+  await page.click("#ok"); await page.waitForTimeout(800);
+  await page.screenshot({ path: `${out}/8-home-saved.png`, fullPage: true });
+  await page.click("#open-settings"); await page.waitForTimeout(600);
+  await page.screenshot({ path: `${out}/9-settings.png`, fullPage: false });
+  await browser.close(); server.kill(); mockProc.kill();
+  console.log("shots in", out);
+  process.exit(0);
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -1,0 +1,163 @@
+// IPC handlers for the TV Setup UI (scan, inspect, run, undo, prepare, saved TVs, settings).
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const store = require("./core/store");
+const assets = require("./core/assets");
+const jobs = require("./core/jobs");
+const scan = require("./core/scan");
+const android = require("./platforms/android");
+const lg = require("./platforms/lg");
+const samsung = require("./platforms/samsung");
+const debloat = require("./platforms/debloat");
+
+const APP_VERSION = (() => {
+  try { return fs.readFileSync(path.join(__dirname, "..", "VERSION"), "utf8").trim(); } catch { return "dev"; }
+})();
+
+const PROFILES = [
+  { id: "samsung", platform: "samsung", label: "Samsung TV", sub: "Tizen, 2018 and newer" },
+  { id: "lg", platform: "lg", label: "LG TV", sub: "webOS with Developer Mode" },
+  { id: "shield", platform: "android", label: "NVIDIA Shield", sub: "Android TV" },
+  { id: "onn", platform: "android", label: "onn box", sub: "Google TV / Android TV" },
+  { id: "sony", platform: "android", label: "Sony BRAVIA", sub: "Google TV / Android TV" },
+  { id: "androidtv", platform: "android", label: "Other Android / Google TV", sub: "TCL, Hisense, Philips, Chromecast…" },
+  { id: "firetv", platform: "android", label: "Fire TV", sub: "Stick, Cube, Fire TV sets" }
+];
+
+function platformOf(profile) {
+  return PROFILES.find((item) => item.id === profile)?.platform || "android";
+}
+
+function register(handlers, { userDataDir, bundledDir, broadcast }) {
+  store.init(userDataDir);
+  assets.init(userDataDir, bundledDir);
+  android.init(userDataDir);
+  samsung.init(handlers);
+  jobs.setBroadcaster(broadcast);
+
+  const startJob = (title, steps, worker) => {
+    const job = jobs.createJob(title, steps);
+    Promise.resolve()
+      .then(() => worker(job))
+      .then((result) => job.finish(result))
+      .catch((error) => { job.log(error?.message || String(error), "error"); job.fail(error); });
+    return { jobId: job.id };
+  };
+
+  handlers.set("app:info", async () => ({
+    version: APP_VERSION,
+    profiles: PROFILES,
+    settings: await store.getSettings(),
+    devices: (await store.listDevices()).map(({ lg: lgSecrets, ...device }) => ({ ...device, hasLgKey: Boolean(lgSecrets?.key) })),
+    storageBytes: await assets.storageUsed(),
+    lists: { count: debloat.lists().lists.length, commit: debloat.lists().commit, source: debloat.lists().source }
+  }));
+
+  handlers.set("settings:set", async (_event, patch) => store.setSettings(patch || {}));
+
+  handlers.set("scan:run", async (_event, phoneIp) => {
+    const found = await scan.scan(phoneIp, {
+      onProgress: (fraction) => broadcast("scan:progress", { fraction }),
+      onFound: (info) => broadcast("scan:found", info)
+    });
+    return found;
+  });
+
+  handlers.set("device:check", async (_event, { ip, platform }) => scan.check(ip, platform));
+
+  handlers.set("device:inspect", async (_event, request) => {
+    const platform = platformOf(request.profile);
+    if (platform === "samsung") return samsung.inspect(request);
+    if (platform === "lg") return lg.inspect(request);
+    return android.inspect(request, {
+      onAuthPrompt: () => broadcast("device:authPrompt", { ip: request.ip })
+    });
+  });
+
+  handlers.set("device:run", async (_event, request) => {
+    const platform = platformOf(request.profile);
+    const choices = request.choices || {};
+    if (platform === "samsung") return startJob("Setting up your Samsung TV", samsung.stepsFor(choices), (job) => samsung.run(request, job));
+    if (platform === "lg") return startJob("Setting up your LG TV", lg.stepsFor(choices), (job) => lg.run(request, job));
+    return startJob("Setting up your TV", android.stepsFor(choices), (job) => android.run(request, job));
+  });
+
+  handlers.set("device:undo", async (_event, request) => startJob("Undoing changes", [
+    { id: "connect", label: "Connect to the TV" },
+    { id: "packages", label: "Turn removed apps back on" },
+    { id: "home", label: "Restore the original home screen" },
+    { id: "settings", label: "Restore settings" }
+  ], (job) => android.undo(request, job)));
+
+  handlers.set("device:launch", async (_event, request) => android.launch(request));
+  handlers.set("device:remove", async (_event, id) => { await store.removeDevice(id); return true; });
+  handlers.set("device:list", async () => store.listDevices());
+  handlers.set("job:get", async (_event, id) => jobs.getJob(id));
+  handlers.set("job:cancel", async (_event, id) => { jobs.cancelJob(id); return true; });
+
+  handlers.set("lg:extendAll", async () => lg.extendAll());
+
+  // Prepare ahead: download everything the saved TVs (or all platforms) need, so setup at the
+  // TV only uploads and installs. Samsung also gets its package pre-signed (installer:prefetch).
+  handlers.set("prepare:run", async (_event, request = {}) => {
+    const devices = await store.listDevices();
+    const settings = await store.getSettings();
+    const wantAll = Boolean(request.all || settings.prepareAllPlatforms);
+    const wanted = [];
+    const add = (id, variant, label) => { if (!wanted.some((item) => item.id === id && item.variant === variant)) wanted.push({ id, variant, label }); };
+    for (const device of devices) {
+      if (device.platform === "android") {
+        const choice = device.choices?.nuvio && device.choices.nuvio !== "skip" && device.choices.nuvio !== "custom" ? device.choices.nuvio : "nuvio-official";
+        const abi = device.abi || "arm64";
+        add(choice, abi, `Nuvio for ${device.name}`);
+        if (device.choices?.smarttube) add("smarttube", abi, `SmartTube for ${device.name}`);
+      }
+      if (device.platform === "lg") add("nuvio-legacy-lg", device.choices?.nuvio === "highcache" ? "highcache" : "default", "Nuvio for LG");
+    }
+    if (wantAll) {
+      add("nuvio-official", "arm64", "Nuvio (64-bit)");
+      add("nuvio-official", "armv7", "Nuvio (32-bit)");
+      add("nuvio-legacy-android", "arm64", "Nuvio Legacy (64-bit)");
+      add("nuvio-legacy-android", "armv7", "Nuvio Legacy (32-bit)");
+      add("nuvio-legacy-lg", "default", "Nuvio for LG");
+      add("smarttube", "arm64", "SmartTube (64-bit)");
+      add("smarttube", "armv7", "SmartTube (32-bit)");
+    }
+    const hasSamsung = devices.some((device) => device.platform === "samsung") || wantAll;
+    const steps = wanted.map((item, index) => ({ id: `a${index}`, label: item.label }));
+    if (hasSamsung) steps.push({ id: "samsung", label: "Samsung: download & pre-sign Nuvio Legacy" });
+    if (!steps.length) return { jobId: null, nothing: true };
+    return startJob("Preparing downloads", steps, async (job) => {
+      for (const [index, item] of wanted.entries()) {
+        await job.run(`a${index}`, async (step) => {
+          const result = await assets.get(item.id, item.variant, {
+            onProgress: (received, total) => total && step.progress(received / total, `${(received / 1048576).toFixed(0)} of ${(total / 1048576).toFixed(0)} MB`)
+          });
+          return result.fromCache ? `Ready (${result.tag})` : `Downloaded ${result.tag}`;
+        }, { optional: true });
+      }
+      if (hasSamsung && handlers.get("installer:prefetch")) {
+        await job.run("samsung", async () => {
+          const samsungDevice = devices.find((device) => device.platform === "samsung");
+          const summary = await handlers.get("installer:prefetch")({ sender: { send: (_c, p) => job.log(String(p?.text || "")) } }, {
+            apps: ["legacy"], ip: samsungDevice?.ip || "", legacyVariant: samsungDevice?.choices?.legacyVariant || "auto"
+          });
+          if (summary?.errors?.length) throw new Error(summary.errors[0]);
+          return summary?.signed ? "Downloaded and pre-signed" : "Downloaded";
+        }, { optional: true });
+      }
+      await assets.prune(2).catch(() => {});
+      await store.setSettings({ lastPrepared: Date.now() });
+      return { prepared: wanted.length + (hasSamsung ? 1 : 0) };
+    });
+  });
+
+  handlers.set("storage:clear", async () => {
+    await fs.promises.rm(path.join(userDataDir, "packages"), { recursive: true, force: true });
+    return assets.storageUsed();
+  });
+}
+
+module.exports = { register, PROFILES };

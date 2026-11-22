@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # CleanYourTV (MIT): tested debloat lists and the home screen. Bump to pick up new lists.
+  CYT_COMMIT: fe6cdcefa817da9f6facd3a17a3c5a086124f258
+  APKTOOL_VERSION: 2.10.0
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,48 +21,92 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # The phone runs nodejs-mobile's Node 18, so test on 18.
+          node-version: 18
 
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Syntax check Node and UI code
+      - name: Read version
+        id: ver
+        run: |
+          V=$(tr -d '[:space:]' < VERSION)
+          IFS=. read -r MA MI PA <<< "$V"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "code=$((MA * 10000 + MI * 100 + PA))" >> "$GITHUB_OUTPUT"
+          cp VERSION nodejs-project/VERSION
+
+      - name: Fetch CleanYourTV
+        run: |
+          git init -q cyt && cd cyt
+          git remote add origin https://github.com/Gathin23/cleanyourtv
+          git fetch -q --depth 1 origin "$CYT_COMMIT"
+          git checkout -q FETCH_HEAD
+
+      - name: Regenerate debloat lists
+        run: python3 scripts/gen_lists.py cyt nodejs-project/src/data/lists.json
+
+      - name: Syntax check
         run: |
           node --check nodejs-project/server.js
-          for f in nodejs-project/src/*.js; do node --check "$f"; done
+          find nodejs-project/src -name '*.js' -print0 | xargs -0 -n1 node --check
           sed -n '/<script>/,/<\/script>/p' nodejs-project/ui/index.html | sed '1d;$d' > /tmp/ui.js
           node --check /tmp/ui.js
 
-      - name: Read version
-        id: ver
-        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Tests (mock Android TV, LG TV, ADB)
+        run: |
+          node tests/test-adb.js
+          node tests/test-android.js
+          node tests/test-lg.js
 
-      - name: Repack APK
-        run: python3 scripts/repack.py base/NuvioPlex-TV-Installer-1.2.3.apk nodejs-project unsigned.apk
-
-      - name: Sign APK
+      - name: Prepare signing key
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 || secrets.NUVIO_AUTO_KEYSTORE_B64 }}
           KEYSTORE_PASS: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASS" ]; then
-            echo "::error::Set the SIGNING_KEYSTORE_B64 and SIGNING_PASSWORD repo secrets."
+            echo "::error::Set the SIGNING_KEYSTORE_B64 (or NUVIO_AUTO_KEYSTORE_B64) and SIGNING_PASSWORD repo secrets."
             exit 1
           fi
-          echo "$KEYSTORE_B64" | base64 -d > signing.jks
-          curl -sSL -o uber.jar https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar
-          java -jar uber.jar -a unsigned.apk -o out \
-            --ks signing.jks --ksAlias nuviotizen --ksPass "$KEYSTORE_PASS" --ksKeyPass "$KEYSTORE_PASS"
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing.jks"
+          curl -sSL -o "$RUNNER_TEMP/uber.jar" https://github.com/patrickfav/uber-apk-signer/releases/download/v1.3.0/uber-apk-signer-1.3.0.jar
+          curl -sSL -o "$RUNNER_TEMP/apktool.jar" "https://github.com/iBotPeaches/Apktool/releases/download/v${APKTOOL_VERSION}/apktool_${APKTOOL_VERSION}.jar"
+
+      - name: Build the home screen (CleanYourTV launcher)
+        env:
+          KEYSTORE_PASS: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          cd cyt/launcher
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          ./gradlew assembleRelease -q --console=plain
+          java -jar "$RUNNER_TEMP/uber.jar" -a app/build/outputs/apk/release/app-release.apk -o out --allowResign \
+            --ks "$RUNNER_TEMP/signing.jks" --ksAlias nuviotizen --ksPass "$KEYSTORE_PASS" --ksKeyPass "$KEYSTORE_PASS"
+          mkdir -p ../../nodejs-project/bundled
+          cp out/*-aligned-signed.apk ../../nodejs-project/bundled/tvhome.apk
+          ls -la ../../nodejs-project/bundled
+
+      - name: Build the app
+        env:
+          KEYSTORE_PASS: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          java -jar "$RUNNER_TEMP/apktool.jar" d -f -s -o shell base/NuvioPlex-TV-Installer-1.2.3.apk
+          sed -i 's|<string name="app_name">[^<]*</string>|<string name="app_name">TV Setup</string>|' shell/res/values/strings.xml
+          sed -i "s/^  versionCode: .*/  versionCode: ${{ steps.ver.outputs.code }}/; s/^  versionName: .*/  versionName: ${{ steps.ver.outputs.version }}/" shell/apktool.yml
+          rm -f shell/assets/nodejs-project.zip
+          (cd nodejs-project && zip -q -r -X ../shell/assets/nodejs-project.zip .)
+          java -jar "$RUNNER_TEMP/apktool.jar" b -o unsigned.apk shell
+          java -jar "$RUNNER_TEMP/uber.jar" -a unsigned.apk -o out \
+            --ks "$RUNNER_TEMP/signing.jks" --ksAlias nuviotizen --ksPass "$KEYSTORE_PASS" --ksKeyPass "$KEYSTORE_PASS"
           mkdir -p dist
-          cp out/*-aligned-signed.apk "dist/NuvioTizenInstaller.apk"
-          cp out/*-aligned-signed.apk "dist/NuvioTizenInstaller-${{ steps.ver.outputs.version }}.apk"
-          rm -f signing.jks
+          cp out/*-aligned-signed.apk dist/NuvioTizenInstaller.apk
+          cp out/*-aligned-signed.apk "dist/TVSetup-${{ steps.ver.outputs.version }}.apk"
+          rm -f "$RUNNER_TEMP/signing.jks"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: NuvioTizenInstaller-${{ steps.ver.outputs.version }}
+          name: TVSetup-${{ steps.ver.outputs.version }}
           path: dist/*.apk
 
       - name: Publish release
@@ -66,4 +115,4 @@ jobs:
         run: |
           TAG="v${{ steps.ver.outputs.version }}"
           gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$TAG" dist/*.apk --title "Nuvio Tizen Installer $TAG" --notes-file CHANGELOG.md --latest
+          gh release create "$TAG" dist/*.apk --title "TV Setup $TAG" --notes-file CHANGELOG.md --latest

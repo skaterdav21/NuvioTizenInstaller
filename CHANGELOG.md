@@ -1,3 +1,21 @@
+## 1.4.0: TV Setup
+
+The app is now **TV Setup**: one phone app to set up Samsung, LG, NVIDIA Shield, onn, Sony, other Android/Google TV and Fire TV.
+
+- **New interface.** Your TVs, Wi-Fi scan that finds TVs and says whether developer mode is on, per-device enable steps with a live "ready" check, a plan screen, and a step-by-step progress screen.
+- **Android TV, Google TV, Fire TV** (new ADB engine with RSA auth and flow control):
+  - Nuvio: official app or Nuvio Legacy lite (recommended on low-RAM boxes), or your own APK. 32/64-bit picked automatically.
+  - Clean home screen (CleanYourTV launcher) with Nuvio first in the dock. Full replacement on Android TV; Home-button redirect on Google TV so casting keeps working.
+  - Ads, tracking and bloat removal from CleanYourTV's 531 tested device lists, matched to your exact model, reviewable, with safety guards (home screen, HDMI/tuner inputs, Settings, Wi-Fi owner). Turned off, never uninstalled.
+  - Speed tweaks: faster animations, apps pre-compiled.
+  - Optional SmartTube.
+  - Undo restores everything.
+- **LG webOS** (new): Nuvio Legacy IPK straight from the phone via Developer Mode (key server + SSH), and the Developer Mode session is extended every time the app opens.
+- **Samsung**: same proven installer, now in the step UI with model-based Tizen version detection.
+- Prepare ahead covers every saved TV; optional "keep every build" for setting up TVs with no internet.
+
+Signed with the same key as 1.3.x and the same package id, so it installs over 1.3.3 and keeps the Samsung certificate.
+
 ## 1.3.3
 
 - Fixed: large uploads to the TV (the 35 MB Nuvio Legacy TPK) were sent without ADB flow control, so the TV could end up with a partial file and `vd_appinstall` hung. Uploads now send one packet at a time, wait for the TV's acknowledgement, and wait for the TV to confirm the file was written.

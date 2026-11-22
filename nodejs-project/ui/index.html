@@ -1,634 +1,633 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Nuvio TV Installer</title>
-  <style>
-    :root {
-      color-scheme: dark;
-      --bg: #0b0b0c;
-      --panel: #161618;
-      --panel-2: #1e1e21;
-      --border: rgba(255, 255, 255, 0.09);
-      --text: #f4f4f5;
-      --muted: #a1a1aa;
-      --accent: #ffffff;
-      --success: #34d399;
-      --error: #f87171;
-      --warn: #fbbf24;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; background: var(--bg); color: var(--text); }
-    body {
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
-      max-width: 640px;
-      margin: 0 auto;
-    }
-    header { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 18px; }
-    header img { height: 30px; }
-    header span { color: var(--muted); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
-    .card {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 16px;
-      margin-bottom: 14px;
-    }
-    h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
-    details summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; }
-    details summary::-webkit-details-marker { display: none; }
-    details summary::after { content: "▾"; color: var(--muted); }
-    details[open] summary::after { content: "▴"; }
-    details summary h2 { margin: 0; }
-    ol { margin: 12px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; line-height: 1.6; }
-    ol strong { color: var(--text); }
-    .ip-box {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
-      padding: 10px 12px; margin-top: 12px;
-    }
-    .ip-box .label { color: var(--muted); font-size: 12px; }
-    .ip-box .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
-    label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
-    input, select {
-      width: 100%; font: inherit; font-size: 16px; color: var(--text);
-      background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
-      padding: 12px; outline: none;
-    }
-    input:focus, select:focus { border-color: rgba(255, 255, 255, 0.35); }
-    .field { margin-bottom: 14px; }
-    .file-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; color: var(--muted); }
-    .file-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-    button {
-      font: inherit; font-weight: 600; font-size: 16px; border-radius: 14px; border: 1px solid var(--border);
-      padding: 14px; width: 100%; color: var(--text); background: var(--panel-2);
-    }
-    button.primary { background: var(--accent); color: #0b0b0c; border-color: transparent; }
-    button.small { width: auto; padding: 8px 12px; font-size: 13px; border-radius: 10px; }
-    button:disabled { opacity: 0.45; }
-    .actions { display: grid; gap: 10px; }
-    .status { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); min-height: 20px; margin-bottom: 10px; }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
-    .status.busy .dot { background: var(--warn); animation: pulse 1.2s infinite; }
-    .status.ok .dot { background: var(--success); }
-    .status.err .dot { background: var(--error); }
-    @keyframes pulse { 50% { opacity: 0.3; } }
-    #log {
-      font-family: ui-monospace, "Roboto Mono", monospace; font-size: 12px; line-height: 1.5;
-      background: #080809; border: 1px solid var(--border); border-radius: 12px;
-      padding: 10px; height: 260px; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
-    }
-    #log .error { color: var(--error); }
-    #log .success { color: var(--success); }
-    #log .command { color: #93c5fd; }
-    #log .stderr { color: var(--warn); }
-    .log-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-    .log-head h2 { margin: 0; }
-    .hidden { display: none !important; }
-    .app-option { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
-    .app-option select { margin-top: 10px; background: var(--panel); }
-    .check { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--text); font-size: 16px; font-weight: 600; }
-    .check input { width: 22px; height: 22px; margin: 0; accent-color: #ffffff; }
-    .app-note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
-    .launch-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    #launch-legacy { grid-column: 1 / -1; }
-    .signin { border: 1px solid #ffffff55; border-radius: 12px; padding: 14px; margin: 12px 0; background: #ffffff0d; }
-    .signin p { font-size: 13px; color: var(--muted); margin: 6px 0 12px; line-height: 1.4; }
-    .signin a.button { display: block; text-align: center; text-decoration: none; padding: 12px; border-radius: 10px; background: #ffffff; color: #000; font-weight: 700; }
-    .hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>TV Setup</title>
+<style>
+  @font-face { font-family: "Archivo"; src: url("archivo.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }
+  :root {
+    --body: #1b1e24;      /* graphite, the remote's body */
+    --key: #262a32;       /* raised surfaces, like keys */
+    --key-hi: #30353f;
+    --edge: #3a404b;
+    --text: #f2f3f5;
+    --muted: #a9b0bd;
+    --faint: #7c8494;
+    --red: #e5484d;       /* failed */
+    --green: #3fb36b;     /* done */
+    --yellow: #f0b429;    /* needs you */
+    --blue: #3e7bfa;      /* working */
+    --r-key: 14px;
+    --r-sheet: 22px;
+    --pad: 18px;
+    --font: "Archivo", system-ui, -apple-system, "Roboto", sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--body); color: var(--text); font-family: var(--font); font-size: 16px; line-height: 1.45; }
+  body { min-height: 100vh; padding-bottom: calc(118px + env(safe-area-inset-bottom)); }
+  button, input, select { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .hidden { display: none !important; }
+
+  header.top { display: flex; align-items: center; gap: 12px; padding: 16px var(--pad) 6px; }
+  header.top h1 { margin: 0; font-size: 22px; font-weight: 800; font-stretch: 125%; letter-spacing: -0.01em; flex: 1; }
+  .icon-btn { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--key); display: grid; place-items: center; cursor: pointer; }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .back { display: none; }
+  body.deep .back { display: grid; }
+
+  main { padding: 6px var(--pad) 24px; max-width: 640px; margin: 0 auto; }
+  h2 { font-size: 26px; font-weight: 800; font-stretch: 118%; line-height: 1.12; margin: 14px 0 6px; letter-spacing: -0.01em; }
+  h3 { font-size: 17px; font-weight: 700; margin: 26px 0 10px; }
+  p.lede { color: var(--muted); margin: 0 0 18px; max-width: 62ch; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  /* Keys: the main surface element. Two sizes, not one radius for everything. */
+  .key { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: var(--key); border: 1px solid transparent;
+         border-radius: var(--r-key); padding: 14px 16px; margin: 0 0 10px; cursor: pointer; box-shadow: 0 2px 0 #12141880; }
+  .key:active { transform: translateY(1px); box-shadow: none; background: var(--key-hi); }
+  .key .grow { flex: 1; min-width: 0; }
+  .key .title { font-weight: 700; display: block; }
+  .key .sub { font-size: 13px; color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .glyph { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--body); flex: none; font-weight: 800; font-stretch: 125%; font-size: 14px; }
+  .chev { color: var(--faint); }
+
+  .device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .device-grid .key { flex-direction: column; align-items: flex-start; gap: 10px; margin: 0; min-height: 112px; }
+  .device-grid .key .sub { white-space: normal; }
+
+  .empty { border: 1.5px dashed var(--edge); border-radius: var(--r-key); padding: 18px; color: var(--muted); }
+
+  /* Status dots: the remote's color keys. */
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--edge); flex: none; }
+  .dot.blue { background: var(--blue); box-shadow: 0 0 0 4px #3e7bfa33; }
+  .dot.green { background: var(--green); }
+  .dot.yellow { background: var(--yellow); box-shadow: 0 0 0 4px #f0b42933; }
+  .dot.red { background: var(--red); }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--key); font-size: 13px; color: var(--muted); }
+
+  label.field { display: block; margin: 0 0 14px; }
+  label.field > span { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  input[type=text], input[type=password], select { width: 100%; background: var(--key); border: 1px solid var(--edge); border-radius: 12px; padding: 13px 14px; font-size: 17px; }
+  input.code { font-stretch: 125%; letter-spacing: 0.18em; font-weight: 700; text-transform: uppercase; }
+
+  /* Choice rows (radio / toggle) */
+  .group { background: var(--key); border-radius: var(--r-sheet); padding: 6px 0; margin-bottom: 14px; }
+  .group > .head { padding: 12px 16px 6px; display: flex; align-items: baseline; gap: 10px; }
+  .group > .head b { font-size: 17px; }
+  .group > .head .muted { font-size: 13px; }
+  .opt { display: flex; gap: 14px; align-items: flex-start; padding: 12px 16px; cursor: pointer; }
+  .opt + .opt { border-top: 1px solid #ffffff0d; }
+  .opt input { margin: 3px 0 0; width: 20px; height: 20px; accent-color: var(--blue); flex: none; }
+  .opt .t { font-weight: 600; display: block; }
+  .opt .d { font-size: 13px; color: var(--muted); display: block; }
+  .tag { font-size: 12px; font-weight: 700; color: var(--green); margin-left: 6px; }
+  .link { background: none; border: 0; color: #8fb0ff; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+  /* How-to steps really are a sequence, so they're numbered. */
+  ol.howto { margin: 0 0 16px; padding: 0; list-style: none; counter-reset: s; }
+  ol.howto li { counter-increment: s; display: grid; grid-template-columns: 30px 1fr; gap: 10px; padding: 8px 0; color: var(--text); }
+  ol.howto li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; background: var(--key); display: grid; place-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }
+  ol.howto b { font-weight: 700; }
+
+  .port { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--key); margin: 0 0 16px; font-size: 14px; }
+
+  /* Run view */
+  .steps { list-style: none; padding: 0; margin: 10px 0 0; }
+  .steps li { display: grid; grid-template-columns: 18px 1fr; gap: 14px; padding: 12px 0; border-bottom: 1px solid #ffffff0d; }
+  .steps li .dot { margin-top: 5px; }
+  .steps .label { font-weight: 650; }
+  .steps .detail { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+  .steps li.waiting { background: #f0b42914; margin: 0 calc(var(--pad) * -1); padding-left: var(--pad); padding-right: var(--pad); }
+  .steps li.waiting .detail { color: var(--yellow); font-size: 15px; font-weight: 600; }
+  .steps li.skipped .label { color: var(--faint); }
+  .bar { height: 6px; background: var(--body); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--blue); width: 0; transition: width .25s linear; }
+  .signin { background: #f0b42914; border: 1px solid #f0b42955; border-radius: var(--r-key); padding: 16px; margin: 14px 0; }
+  .signin a.cta { display: block; text-align: center; padding: 13px; border-radius: 12px; background: var(--text); color: var(--body); font-weight: 800; text-decoration: none; margin: 10px 0 8px; }
+  details.log { margin-top: 18px; }
+  details.log summary { color: var(--muted); cursor: pointer; font-size: 14px; }
+  .logbox { margin-top: 8px; max-height: 300px; overflow: auto; font-size: 12px; line-height: 1.5; background: #14161b; border-radius: 12px; padding: 10px 12px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .logbox .error { color: #ff8a8d; } .logbox .success { color: #7fd8a0; }
+
+  .result { border-radius: var(--r-sheet); padding: 18px; margin: 18px 0 0; background: var(--key); }
+  .result.ok { box-shadow: inset 4px 0 0 var(--green); }
+  .result.bad { box-shadow: inset 4px 0 0 var(--red); }
+
+  /* The OK button: the one bold thing. */
+  .dock { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px var(--pad) calc(14px + env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--body) 28%); display: flex; align-items: center; gap: 14px; justify-content: flex-end; pointer-events: none; }
+  .dock > * { pointer-events: auto; }
+  .dock .hint { flex: 1; text-align: right; line-height: 1.25; }
+  .dock .hint b { display: block; font-size: 19px; font-weight: 800; font-stretch: 112%; color: var(--text); }
+  .dock .hint span { font-size: 13px; color: var(--muted); }
+  .ok-btn { width: 84px; height: 84px; border-radius: 50%; border: 0; background: radial-gradient(circle at 50% 38%, #4c87ff, var(--blue) 62%, #2f63d4); color: #fff; font-weight: 800; font-stretch: 125%; font-size: 15px; letter-spacing: 0.02em; cursor: pointer;
+            box-shadow: 0 0 0 6px var(--key), 0 0 0 7px var(--edge), 0 10px 24px #0008; }
+  .ok-btn:active { transform: scale(0.96); }
+  .ok-btn:disabled { background: var(--key-hi); color: var(--faint); }
+  .ok-btn.go { animation: ring 1.8s ease-out 1; }
+  @keyframes ring { 0% { box-shadow: 0 0 0 6px var(--key), 0 0 0 7px var(--edge), 0 0 0 7px #3e7bfa88; } 100% { box-shadow: 0 0 0 6px var(--key), 0 0 0 7px var(--edge), 0 0 0 26px #3e7bfa00; } }
+  @media (prefers-reduced-motion: reduce) { .ok-btn.go { animation: none; } .bar i { transition: none; } }
+
+  /* Bottom sheet */
+  .scrim { position: fixed; inset: 0; background: #0009; z-index: 20; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 88vh; overflow: auto; background: #20242b; border-radius: var(--r-sheet) var(--r-sheet) 0 0; z-index: 21; padding: 10px var(--pad) calc(24px + env(safe-area-inset-bottom)); }
+  .sheet .grab { width: 44px; height: 5px; border-radius: 3px; background: var(--edge); margin: 4px auto 10px; }
+  .sheet h2 { margin-top: 4px; }
+  .pkg { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #ffffff0d; align-items: flex-start; }
+  .pkg input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--blue); flex: none; }
+  .pkg code { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+  .pkg .note { font-size: 12px; color: var(--muted); display: block; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--edge); background: var(--key); cursor: pointer; font-weight: 650; }
+  .btn.full { width: 100%; }
+  .btn.danger { color: #ff8a8d; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(120px + env(safe-area-inset-bottom)); background: var(--text); color: var(--body); padding: 10px 16px; border-radius: 999px; font-weight: 650; z-index: 30; font-size: 14px; max-width: 90vw; }
+  .scanbar { height: 3px; border-radius: 2px; background: var(--key); overflow: hidden; margin: 6px 0 12px; }
+  .scanbar i { display: block; height: 100%; width: 0; background: var(--blue); }
+</style>
 </head>
 <body>
-  <header>
-    <img src="nuvio_wordmark.png" alt="Nuvio">
-    <span>Samsung TV Installer</span>
-  </header>
+<header class="top">
+  <button class="icon-btn back" id="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <h1 id="title">TV Setup</h1>
+  <button class="icon-btn" id="open-settings" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/></svg></button>
+</header>
 
-  <section class="card">
-    <details id="setup" open>
-      <summary><h2>1 · Prepare the TV (one time)</h2></summary>
-      <ol>
-        <li>Connect the phone and the TV to the <strong>same Wi-Fi network</strong>.</li>
-        <li>On the TV, open <strong>Apps</strong>, then press <strong>1 2 3 4 5</strong> on the remote (or the on-screen number pad).</li>
-        <li>Turn <strong>Developer Mode</strong> on and enter this phone's IP below as <strong>Host PC IP</strong>.</li>
-        <li>Restart the TV: <strong>hold the Power button</strong> until the Samsung logo appears.</li>
-        <li>Find the TV's IP in <strong>Settings → General → Network → Network Status → IP Settings</strong>.</li>
-      </ol>
-      <div class="ip-box">
-        <div>
-          <div class="label">Host PC IP (this phone)</div>
-          <div class="value" id="phone-ip">…</div>
-        </div>
-        <button class="small" id="copy-ip">Copy</button>
-      </div>
-    </details>
-  </section>
+<main id="view"></main>
 
-  <section class="card">
-    <h2>2 · Install apps</h2>
-    <div class="field">
-      <label for="tv-ip">TV IP address</label>
-      <input id="tv-ip" inputmode="decimal" autocomplete="off" placeholder="192.168.1.50">
+<div class="dock" id="dock"><span class="hint" id="dock-hint"></span><button class="ok-btn" id="ok" disabled>OK</button></div>
+<div id="sheet-root"></div>
+<input type="file" id="file-input" class="hidden">
+
+<script>
+"use strict";
+const token = new URLSearchParams(location.search).get("t") || "";
+const bridge = window.AndroidBridge || null;
+const $ = (id) => document.getElementById(id);
+const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function invoke(channel, ...args) {
+  const response = await fetch(`/api/invoke?t=${encodeURIComponent(token)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, args }) });
+  const body = await response.json();
+  if (body.error) throw new Error(body.error);
+  return body.result;
+}
+async function upload(file) {
+  const response = await fetch(`/api/upload?t=${encodeURIComponent(token)}&name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+  const body = await response.json();
+  if (body.error) throw new Error(body.error);
+  return body.path;
+}
+function pickFile(accept) {
+  return new Promise((resolve) => {
+    const input = $("file-input");
+    input.value = "";
+    input.accept = accept;
+    input.onchange = () => resolve(input.files[0] || null);
+    input.click();
+  });
+}
+function toast(text, ms = 2600) {
+  const el = document.createElement("div");
+  el.className = "toast"; el.textContent = text; document.body.appendChild(el);
+  setTimeout(() => el.remove(), ms);
+}
+function phoneIp() { try { return (bridge && bridge.getWifiIp()) || ""; } catch { return ""; } }
+function keepAwake(on) { try { bridge?.keepScreenOn(on); } catch {} }
+
+// ---------------- State & routing ----------------
+const state = { info: null, view: "home", stack: [], scan: { running: false, found: [], fraction: 0 }, target: null, summary: null, choices: null, job: null, log: [] };
+
+function go(view, params = {}, replace = false) {
+  if (!replace && state.view !== view) state.stack.push(state.view);
+  state.view = view;
+  Object.assign(state, params);
+  render();
+  window.scrollTo(0, 0);
+}
+function back() {
+  if (state.view === "run" && state.job && state.job.status === "running") { toast("Setup is still running. It'll keep going if you leave the app open."); return; }
+  const previous = state.stack.pop() || "home";
+  state.view = previous;
+  render();
+}
+$("back").onclick = back;
+$("open-settings").onclick = () => openSettings();
+
+// The round button always reads OK, like a remote; the action it takes is written beside it.
+function setDock(action, hint, onClick, { enabled = true, pulse = false } = {}) {
+  const ok = $("ok");
+  ok.textContent = enabled ? "OK" : "···"; ok.disabled = !enabled; ok.onclick = onClick;
+  ok.setAttribute("aria-label", action || "OK");
+  ok.classList.toggle("go", pulse);
+  $("dock-hint").innerHTML = action ? `<b>${esc(action)}</b><span>${esc(hint || "")}</span>` : "";
+  $("dock").classList.toggle("hidden", !action);
+}
+
+// ---------------- Profiles & instructions ----------------
+const GLYPH = { samsung: "Sa", lg: "LG", shield: "Nv", onn: "onn", sony: "Sy", androidtv: "TV", firetv: "Fi", chromecast: "TV" };
+const HOWTO = {
+  shield: ["Open <b>Settings → Device Preferences → About</b>.", "Select <b>Build</b> 7 times until it says you're a developer.", "Go back to <b>Device Preferences → Developer options</b>.", "Turn on <b>Network debugging</b>."],
+  onn: ["Open <b>Settings → System → About</b>.", "Select <b>Android TV OS build</b> 7 times.", "Go back to <b>System → Developer options</b>.", "Turn on <b>USB debugging</b>. On onn boxes this also opens network debugging."],
+  sony: ["Open <b>Settings → System → About</b>.", "Select <b>Build</b> 7 times.", "Go back to <b>System → Developer options</b>.", "Turn on <b>USB debugging</b> (and <b>Network debugging</b> if you see it)."],
+  androidtv: ["Open <b>Settings → System</b> (or Device Preferences) <b>→ About</b>.", "Select <b>Build</b> or <b>Android TV OS build</b> 7 times.", "Open <b>Developer options</b>.", "Turn on <b>USB debugging</b> and <b>Network debugging</b> if it's there."],
+  firetv: ["Open <b>Settings → My Fire TV → About</b>.", "Select the device name 7 times.", "Go back to <b>My Fire TV → Developer Options</b>.", "Turn on <b>ADB Debugging</b>."],
+  samsung: ["On the TV, open <b>Apps</b>.", "Press <b>1 2 3 4 5</b> on the remote (or the on-screen keypad).", "Turn <b>Developer mode</b> on and set <b>Host PC IP</b> to this phone's IP below.", "Hold the power button until the TV restarts."],
+  lg: ["Install the <b>Developer Mode</b> app from LG Content Store and sign in with an LG developer account.", "Turn <b>Dev Mode Status</b> on (the TV restarts).", "Open the app again and turn on <b>Key Server</b>.", "Type the 6-character <b>Passphrase</b> it shows into the box below."]
+};
+const AD_CHECKLIST = {
+  samsung: ["Settings → General & Privacy → Terms & Privacy: turn off <b>Viewing Information Services</b> and <b>Interest-Based Advertisement</b>.", "Settings → General → Smart Features: turn off <b>Autorun Smart Hub</b> and <b>Autorun Last App</b>.", "Settings → Support → Terms & Policy: turn off <b>Voice Recognition</b> if you don't use it."],
+  lg: ["Settings → General → System → Additional Settings: turn off <b>Home Promotion</b>, <b>Content Recommendation</b> and <b>Advertisement</b>.", "Settings → Support → Privacy & Terms → User Agreements: turn off <b>Viewing Information</b> and <b>Voice Information</b>.", "Settings → General → System → Additional Settings: turn off <b>Live Plus</b>."]
+};
+
+function profile(id) { return state.info?.profiles.find((p) => p.id === id) || { id, platform: "android", label: "TV" }; }
+
+// ---------------- Views ----------------
+function render() {
+  document.body.classList.toggle("deep", state.view !== "home");
+  const views = { home: viewHome, pick: viewPick, connect: viewConnect, plan: viewPlan, run: viewRun };
+  $("title").textContent = { home: "TV Setup", pick: "Set up a TV", connect: "Connect", plan: "Your setup", run: state.job?.title || "Setting up" }[state.view];
+  (views[state.view] || viewHome)();
+}
+
+function deviceRow(device) {
+  const when = device.lastSetup ? `set up ${relTime(device.lastSetup)}` : "not set up yet";
+  return `<button class="key" data-device="${esc(device.id)}">
+    <span class="glyph">${esc(GLYPH[device.profile] || "TV")}</span>
+    <span class="grow"><span class="title">${esc(device.name || "TV")}</span><span class="sub">${esc(device.ip)}, ${esc(device.os || device.platform)}, ${esc(when)}</span></span>
+    <span class="chev">›</span></button>`;
+}
+function relTime(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 2) return "just now"; if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60); if (h < 36) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+function viewHome() {
+  const devices = state.info?.devices || [];
+  const found = state.scan.found.filter((f) => !devices.some((d) => d.ip === f.ip && d.platform === f.platform));
+  $("view").innerHTML = `
+    <h2>${devices.length ? "Your TVs" : "Let's set up a TV"}</h2>
+    <p class="lede">${devices.length ? "Tap a TV to update Nuvio or run setup again." : "Install Nuvio, swap in a clean home screen and strip out ads and tracking. Takes about 5 minutes per TV."}</p>
+    <div id="saved">${devices.map(deviceRow).join("")}</div>
+    <h3>On this Wi-Fi</h3>
+    <div class="scanbar ${state.scan.running ? "" : "hidden"}"><i style="width:${Math.round(state.scan.fraction * 100)}%"></i></div>
+    <div id="found">${found.map((f) => `<button class="key" data-found="${esc(f.ip)}">
+        <span class="glyph">${esc(GLYPH[f.profile] || "TV")}</span>
+        <span class="grow"><span class="title">${esc(f.name || f.model || f.maker || "TV")}</span><span class="sub">${esc(f.ip)}, ${esc(f.model || f.maker || f.platform)}${f.devMode ? ", ready" : ", developer mode off"}</span></span>
+        <span class="dot ${f.devMode ? "green" : "yellow"}"></span></button>`).join("") ||
+      (state.scan.running ? `<p class="muted small">Looking for TVs…</p>` : `<div class="empty">No other TVs found yet. Tap Scan, or pick your TV type with Set up.</div>`)}</div>
+    <div class="row" style="margin-top:6px"><button class="btn" id="scan-btn" ${state.scan.running ? "disabled" : ""}>${state.scan.running ? "Scanning…" : "Scan Wi-Fi"}</button></div>
+    ${prepChip()}`;
+  document.querySelectorAll("[data-device]").forEach((el) => el.onclick = () => openDevice(el.dataset.device));
+  document.querySelectorAll("[data-found]").forEach((el) => el.onclick = () => {
+    const f = state.scan.found.find((item) => item.ip === el.dataset.found);
+    go("connect", { target: { profile: f.profile || (f.platform === "android" ? "androidtv" : f.platform), ip: f.ip, name: f.name || f.model } });
+  });
+  $("scan-btn").onclick = runScan;
+  setDock("Set up a TV", devices.length ? "Add another one" : "Pick your TV type", () => go("pick"), { pulse: !devices.length });
+}
+
+function prepChip() {
+  const s = state.info?.settings || {};
+  if (!s.lastPrepared) return "";
+  return `<p class="small muted" style="margin-top:22px"><span class="pill"><span class="dot green"></span>Downloads ready, checked ${esc(relTime(s.lastPrepared))}</span></p>`;
+}
+
+async function runScan() {
+  const ip = phoneIp();
+  if (!ip) { toast("Connect the phone to Wi-Fi first."); return; }
+  state.scan = { running: true, found: [], fraction: 0 };
+  render();
+  try { state.scan.found = await invoke("scan:run", ip); }
+  catch (error) { toast(error.message); }
+  state.scan.running = false;
+  if (state.view === "home") render();
+}
+
+function viewPick() {
+  const profiles = state.info?.profiles || [];
+  $("view").innerHTML = `<h2>What are you setting up?</h2><p class="lede">Each one gets the best Nuvio build for it and the clean-up steps that are safe on that system.</p>
+    <div class="device-grid">${profiles.map((p) => `<button class="key" data-profile="${p.id}"><span class="glyph">${esc(GLYPH[p.id])}</span><span><span class="title">${esc(p.label)}</span><span class="sub">${esc(p.sub)}</span></span></button>`).join("")}</div>`;
+  document.querySelectorAll("[data-profile]").forEach((el) => el.onclick = () => go("connect", { target: { profile: el.dataset.profile, ip: "" } }));
+  setDock("", "", null);
+}
+
+let portTimer = null;
+function viewConnect() {
+  const t = state.target; const p = profile(t.profile);
+  const isLg = p.platform === "lg"; const isSamsung = p.platform === "samsung";
+  $("view").innerHTML = `
+    <h2>${esc(p.label)}</h2>
+    <p class="lede">Turn on developer mode once. Setup and future updates then run from this phone.</p>
+    <ol class="howto">${(HOWTO[t.profile] || HOWTO.androidtv).map((s) => `<li><span>${s}</span></li>`).join("")}</ol>
+    ${isSamsung ? `<div class="port"><span>This phone's IP:</span><b id="my-ip">${esc(phoneIp() || "not on Wi-Fi")}</b><button class="link" id="copy-ip">Copy</button></div>` : ""}
+    <label class="field"><span>TV's IP address</span><input type="text" id="ip" inputmode="decimal" placeholder="192.168.1.50" value="${esc(t.ip || "")}"></label>
+    ${isLg ? `<label class="field"><span>Passphrase from the Developer Mode app</span><input type="text" id="pass" class="code" maxlength="6" autocomplete="off" autocapitalize="characters" value="${esc(t.passphrase || "")}"></label>` : ""}
+    <div class="port" id="port"><span class="dot"></span><span id="port-text">Enter the TV's IP address</span></div>
+    <p class="small muted">${p.platform === "android" ? "The TV shows <b>Allow USB debugging?</b> the first time. Choose Allow and tick Always allow." : isLg ? "Find the IP under Settings → Network → Wi-Fi → Advanced." : "Find the IP under Settings → General → Network → Network Status → IP Settings."}</p>`;
+  $("copy-ip")?.addEventListener("click", () => { bridge?.copyText(phoneIp()); toast("Copied"); });
+  const check = async () => {
+    const ip = $("ip")?.value.trim();
+    if (!ip || state.view !== "connect") return;
+    const ports = await invoke("device:check", { ip, platform: p.platform }).catch(() => ({}));
+    if (state.view !== "connect") return;
+    const ready = p.platform === "android" ? ports[5555] : p.platform === "samsung" ? ports[26101] : ports[9922] && ports[9991];
+    const seen = Object.values(ports).some(Boolean);
+    const dot = document.querySelector("#port .dot");
+    if (!dot) return;
+    dot.className = `dot ${ready ? "green" : seen ? "yellow" : ""}`;
+    $("port-text").textContent = ready ? "The TV is ready to connect" :
+      seen ? (p.platform === "lg" && ports[9922] ? "Turn on Key Server in the Developer Mode app" : "Found the TV, but developer mode isn't on yet") : "No answer yet. Check the IP and that the TV is on.";
+  };
+  clearInterval(portTimer);
+  portTimer = setInterval(() => { if (state.view !== "connect") clearInterval(portTimer); else check(); }, 3000);
+  $("ip").addEventListener("change", check);
+  check();
+  setDock("Connect", "Reads the TV, changes nothing yet", connectNow);
+}
+
+async function connectNow() {
+  const p = profile(state.target.profile);
+  const ip = $("ip").value.trim();
+  if (!/^\d+\.\d+\.\d+\.\d+(:\d+)?$/.test(ip)) { toast("Enter the TV's IP address, like 192.168.1.50."); return; }
+  const passphrase = $("pass")?.value.trim().toUpperCase() || "";
+  const savedLg = (state.info?.devices || []).some((d) => d.platform === "lg" && d.ip === ip && d.hasLgKey);
+  if (p.platform === "lg" && passphrase.length !== 6 && !savedLg) { toast("Enter the 6-character passphrase from the TV."); return; }
+  state.target = { ...state.target, ip, passphrase };
+  setDock("Connecting…", p.platform === "android" ? "Accept the prompt on the TV" : "Signing in to the TV", null, { enabled: false });
+  try {
+    const summary = await invoke("device:inspect", { profile: state.target.profile, ip, passphrase });
+    clearInterval(portTimer);
+    state.summary = summary;
+    state.choices = defaultChoices(summary);
+    go("plan");
+  } catch (error) {
+    toast(error.message, 5200);
+    setDock("Connect", "Try again", connectNow);
+  }
+}
+
+function defaultChoices(s) {
+  if (s.platform === "samsung") return { legacyVariant: s.recommendations.legacyVariant || "auto" };
+  if (s.platform === "lg") return { nuvio: "default" };
+  const selected = s.debloat.categories.flatMap((c) => c.items.filter((i) => i.selected).map((i) => i.pkg));
+  return { nuvio: s.recommendations.nuvio, homeMode: s.recommendations.homeMode, debloat: selected, speed: true, smarttube: false, replaceIncompatible: false };
+}
+
+function radio(name, value, current, title, desc, recommended) {
+  return `<label class="opt"><input type="radio" name="${name}" value="${esc(value)}" ${current === value ? "checked" : ""}><span><span class="t">${esc(title)}${recommended ? `<span class="tag">Recommended</span>` : ""}</span>${desc ? `<span class="d">${desc}</span>` : ""}</span></label>`;
+}
+function toggle(name, checked, title, desc) {
+  return `<label class="opt"><input type="checkbox" name="${name}" ${checked ? "checked" : ""}><span><span class="t">${esc(title)}</span>${desc ? `<span class="d">${desc}</span>` : ""}</span></label>`;
+}
+
+function viewPlan() {
+  const s = state.summary; const c = state.choices;
+  let body = `<h2>${esc(s.name)}</h2><p class="lede">${esc([s.os, s.memMb ? `${(s.memMb / 1024).toFixed(1)} GB RAM` : "", s.freeMb ? `${(s.freeMb / 1024).toFixed(1)} GB free` : ""].filter(Boolean).join(", "))}</p>`;
+  if (s.platform === "android") {
+    const rec = s.recommendations;
+    const has = s.installed.nuvio.length;
+    body += `<div class="group"><div class="head"><b>Nuvio</b>${has ? `<span class="muted">already installed</span>` : ""}</div>
+      ${radio("nuvio", "nuvio-official", c.nuvio, "Nuvio for Android TV", "The full official app.", rec.nuvio === "nuvio-official")}
+      ${radio("nuvio", "nuvio-legacy-android", c.nuvio, "Nuvio Legacy (lite)", "Native build, much lighter on memory. Best for older or low-RAM boxes.", rec.nuvio === "nuvio-legacy-android")}
+      ${radio("nuvio", "custom", c.nuvio, "My own Nuvio build", c.customApkName ? `Using ${esc(c.customApkName)}` : "Pick an APK file from this phone.")}
+      ${radio("nuvio", "skip", c.nuvio, has ? "Keep the installed one" : "Don't install Nuvio", "")}
+      ${has ? toggle("replace", c.replaceIncompatible, "Replace a differently signed Nuvio", "Only if the installed one is a different build. Its settings are reset.") : ""}</div>`;
+    const homeOptions = s.isFire ? `<div class="opt"><span class="d">Fire TV locks its home screen, so it stays. Everything else still applies.</span></div>` :
+      (s.sdk && s.sdk < 26) ? `<div class="opt"><span class="d">This TV is older than Android 8, which the clean home screen needs.</span></div>` :
+      radio("home", "replace", c.homeMode, "Replace the home screen", s.isGoogleTv ? "Turns off Google TV's home. Casting from phones can stop working on Google TV." : "Turns off the stock home. Undo brings it back.", rec.homeMode === "replace") +
+      radio("home", "redirect", c.homeMode, "Home button opens the clean screen", "Keeps the stock home and casting working behind it.", rec.homeMode === "redirect") +
+      radio("home", "none", c.homeMode, "Leave the home screen alone", "");
+    body += `<div class="group"><div class="head"><b>Clean home screen</b><span class="muted">your apps, no ads, Nuvio first</span></div>${homeOptions}</div>`;
+    const d = s.debloat; const count = c.debloat.length;
+    body += `<div class="group"><div class="head"><b>Ads, tracking & bloat</b></div>
+      <div class="opt" id="review"><span class="grow"><span class="t">${count} of ${d.total} will be turned off</span>
+      <span class="d">${d.matched ? `From the tested list for ${esc(d.matched.tv)}${d.matched.exact ? "" : " (closest match)"}.` : d.total ? "No tested list for this exact model, so only what similar TVs agree on." : "Nothing to remove on this TV."} Turned off, not deleted. Undo turns everything back on.</span></span>
+      ${d.total ? `<button class="link" id="review-btn">Review</button>` : ""}</div></div>`;
+    body += `<div class="group">${toggle("speed", c.speed, "Speed tweaks", "Quicker animations, and apps pre-compiled so they open faster.")}
+      ${toggle("smarttube", c.smarttube, "Add SmartTube", "YouTube without ads, made for TV remotes.")}</div>`;
+    if (s.undoAvailable) body += `<button class="btn full" id="undo-btn">Undo earlier changes on this TV</button>`;
+    if (s.adbOpenWithoutPrompt) body += `<p class="small" style="color:var(--yellow)">This TV lets any device on the network connect without asking. Turn off network debugging when you're done.</p>`;
+  } else if (s.platform === "samsung") {
+    body += `<div class="group"><div class="head"><b>Nuvio Legacy</b><span class="muted">native build, much faster than the web app</span></div>
+      <label class="opt"><span class="grow"><span class="t">TV generation</span><span class="d">Picked from the model. Change it if setup says the build doesn't fit.</span>
+      <select id="variant" style="margin-top:10px">${Object.entries(s.variants).map(([v, l]) => `<option value="${v}" ${c.legacyVariant === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></span></label></div>
+      <p class="small muted">${s.certificateSaved ? "A Samsung certificate is saved on this phone, so sign-in should be skipped." : "First time on this TV: you'll sign in to a Samsung account once, in Chrome. The certificate is saved for future updates."}</p>
+      ${checklist("samsung")}`;
+  } else if (s.platform === "lg") {
+    body += `<div class="group"><div class="head"><b>Nuvio Legacy</b>${s.installed.nuvioVersion ? `<span class="muted">installed: ${esc(s.installed.nuvioVersion)}</span>` : ""}</div>
+      ${radio("lgvar", "default", c.nuvio, "Standard build", "Right for most LG TVs.", true)}
+      ${radio("lgvar", "highcache", c.nuvio, "High-cache build", "300 MB texture cache for TVs with more memory. Smoother poster scrolling.")}
+      ${radio("lgvar", "skip", c.nuvio, "Don't reinstall", "Just extend Developer Mode and open Nuvio.")}</div>
+      <p class="small muted">LG ends Developer Mode after about 50 hours unless it's extended. This app extends it for this TV every time you open it.</p>
+      ${checklist("lg")}`;
+  }
+  $("view").innerHTML = body;
+  bindPlan();
+  setDock("Start setup", s.platform === "android" ? estimate() : "About 2 to 4 minutes", startRun, { pulse: true });
+}
+
+function checklist(kind) {
+  return `<h3>Turn off ads in the TV's settings</h3><p class="small muted">This TV doesn't let apps change these, so here's where they are. Two minutes with the remote.</p>
+    <ol class="howto">${AD_CHECKLIST[kind].map((t) => `<li><span>${t}</span></li>`).join("")}</ol>`;
+}
+function estimate() {
+  const c = state.choices; let m = 1;
+  if (c.nuvio !== "skip") m += 2; if (c.smarttube) m += 1; if (c.homeMode !== "none") m += 1; if (c.debloat.length) m += 1;
+  return `About ${m} to ${m + 2} minutes`;
+}
+
+function bindPlan() {
+  const c = state.choices;
+  document.querySelectorAll('input[name="nuvio"]').forEach((el) => el.onchange = async () => {
+    if (el.value === "custom") {
+      const file = await pickFile(".apk");
+      if (!file) { render(); return; }
+      try { c.customApk = await upload(file); c.customApkName = file.name; c.nuvio = "custom"; } catch (e) { toast(e.message); }
+      render(); return;
+    }
+    c.nuvio = el.value; setDock("Start setup", estimate(), startRun);
+  });
+  document.querySelectorAll('input[name="home"]').forEach((el) => el.onchange = () => { c.homeMode = el.value; });
+  document.querySelectorAll('input[name="lgvar"]').forEach((el) => el.onchange = () => { c.nuvio = el.value; });
+  const bindToggle = (name, key) => { const el = document.querySelector(`input[name="${name}"]`); if (el) el.onchange = () => { c[key] = el.checked; }; };
+  bindToggle("speed", "speed"); bindToggle("smarttube", "smarttube"); bindToggle("replace", "replaceIncompatible");
+  $("variant")?.addEventListener("change", (e) => { c.legacyVariant = e.target.value; });
+  $("review-btn")?.addEventListener("click", openReview);
+  $("undo-btn")?.addEventListener("click", startUndo);
+}
+
+function openReview() {
+  const d = state.summary.debloat; const c = state.choices; const chosen = new Set(c.debloat);
+  const html = `<h2>What gets turned off</h2>
+    <p class="lede">${d.matched ? `Based on CleanYourTV's tested list for ${esc(d.matched.tv)}.` : "Based on lists for similar TVs."} The TV checks each one again before anything changes. Anything that runs inputs, Settings or Home is always kept.</p>
+    ${d.categories.map((cat) => `<h3>${esc(cat.label)}</h3><p class="small muted" style="margin-top:-6px">${esc(cat.description)}</p>
+      ${cat.items.map((i) => `<label class="pkg"><input type="checkbox" data-pkg="${esc(i.pkg)}" ${chosen.has(i.pkg) ? "checked" : ""}><span><code>${esc(i.pkg)}</code><span class="note">${esc(i.note || i.group)}</span></span></label>`).join("")}`).join("")}
+    <div style="height:14px"></div><button class="btn full" id="sheet-done">Done</button>`;
+  openSheet(html, () => {
+    c.debloat = [...document.querySelectorAll("[data-pkg]")].filter((el) => el.checked).map((el) => el.dataset.pkg);
+    render();
+  });
+  $("sheet-done").onclick = closeSheet;
+}
+
+let sheetClose = null;
+function openSheet(html, onClose) {
+  $("sheet-root").innerHTML = `<div class="scrim" id="scrim"></div><div class="sheet" role="dialog"><div class="grab"></div>${html}</div>`;
+  sheetClose = onClose; $("scrim").onclick = closeSheet;
+}
+function closeSheet() { const fn = sheetClose; sheetClose = null; if (fn) fn(); $("sheet-root").innerHTML = ""; }
+
+// ---------------- Running ----------------
+async function startRun() {
+  const s = state.summary;
+  const choices = { ...state.choices };
+  if (s.platform === "android" && choices.nuvio === "custom" && !choices.customApk) { toast("Pick your APK first."); return; }
+  try {
+    state.log = [];
+    const { jobId } = await invoke("device:run", { profile: s.profile, ip: s.ip, choices, passphrase: state.target?.passphrase || "" });
+    state.job = { id: jobId, status: "running", steps: [], title: "Setting up" };
+    keepAwake(true);
+    go("run");
+  } catch (error) { toast(error.message, 5000); }
+}
+async function startUndo() {
+  const s = state.summary;
+  if (!confirm("Turn everything this app turned off back on, and bring back the original home screen?")) return;
+  const { jobId } = await invoke("device:undo", { ip: s.ip, deviceKey: s.deviceKey });
+  state.log = []; state.job = { id: jobId, status: "running", steps: [], title: "Undoing changes" };
+  keepAwake(true); go("run");
+}
+
+function viewRun() {
+  const j = state.job || { steps: [] };
+  const stepHtml = j.steps.map((st) => {
+    const color = { running: "blue", waiting: "yellow", done: "green", failed: "red" }[st.status] || "";
+    return `<li class="${st.status}"><span class="dot ${color}"></span><span><span class="label">${esc(st.label)}</span>
+      ${st.detail ? `<div class="detail">${esc(st.detail)}</div>` : ""}
+      ${st.progress !== null && st.status === "running" ? `<div class="bar"><i style="width:${Math.round(st.progress * 100)}%"></i></div>` : ""}</span></li>`;
+  }).join("");
+  const failedSteps = j.steps.filter((st) => st.status === "failed");
+  const done = j.status === "done" && !failedSteps.length; const partial = j.status === "done" && failedSteps.length > 0; const failed = j.status === "failed";
+  $("view").innerHTML = `<h2>${esc(state.summary?.name || "Your TV")}</h2>
+    <p class="lede">${done ? "All done." : partial ? "Mostly done. One part needs another try." : failed ? "Setup stopped." : "Keep this screen open. You can put the remote down unless a yellow step asks for you."}</p>
+    <div id="signin-slot">${state.signinUrl && !done && !failed ? signinHtml() : ""}</div>
+    <ul class="steps">${stepHtml}</ul>
+    ${done ? `<div class="result ok"><b>Ready to watch.</b><p class="small muted" style="margin:6px 0 0">Nuvio is on the TV. Saved here so updates take one tap next time.</p></div>` : ""}
+    ${partial ? `<div class="result bad"><b>${esc(failedSteps.map((st) => st.label).join(", "))} didn't finish</b><p class="small muted" style="margin:6px 0 0">${esc(failedSteps[0].detail)} Everything else is done. Running setup again only redoes what's needed.</p></div>` : ""}
+    ${failed ? `<div class="result bad"><b>${esc(j.error || "Something went wrong")}</b><p class="small muted" style="margin:6px 0 0">Steps that finished stay done. Fix the problem above and run setup again; it picks up safely.</p></div>` : ""}
+    <details class="log"><summary>Details</summary><div class="logbox" id="logbox">${state.log.map((l) => `<div class="${l.type}">${esc(l.text)}</div>`).join("")}</div></details>`;
+  if (done || failed || partial) {
+    keepAwake(false);
+    const home = () => { state.stack = []; state.view = "home"; refreshInfo().then(render); };
+    if (done || !state.summary || j.title === "Undoing changes") setDock("Done", "Back to your TVs", home, { pulse: done });
+    else setDock("Try again", "Runs setup again; finished parts are quick", () => startRun());
+  } else setDock("Working…", "Keep the app open", null, { enabled: false });
+}
+function signinHtml() {
+  return `<div class="signin"><b>Sign in to Samsung once</b><p class="small muted" style="margin:6px 0 0">Samsung issues a certificate for this TV. Sign in in Chrome, then come back to this app; setup continues by itself.</p>
+    <a class="cta" href="${esc(state.signinUrl)}">Sign in with Chrome</a>
+    <div class="row"><button class="btn" id="signin-inapp">Use in-app sign-in</button><button class="btn" id="signin-copy">Copy link</button></div></div>`;
+}
+document.addEventListener("click", (e) => {
+  if (e.target.id === "signin-inapp") bridge ? bridge.openLogin(state.signinUrl) : window.open(state.signinUrl, "_blank");
+  if (e.target.id === "signin-copy") { bridge?.copyText(state.signinUrl); toast("Link copied. Paste it into Chrome."); }
+});
+
+// ---------------- Events from the phone's engine ----------------
+function connectEvents() {
+  const source = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
+  source.onmessage = (message) => {
+    const { channel, payload } = JSON.parse(message.data);
+    if (channel === "job:update" && state.job && payload.id === state.job.id) {
+      state.job = payload;
+      if (payload.status !== "running") state.signinUrl = "";
+      if (state.view === "run") viewRun();
+    } else if (channel === "installer:log") {
+      state.log.push(payload); if (state.log.length > 1500) state.log.shift();
+      const box = $("logbox");
+      if (box) { const div = document.createElement("div"); div.className = payload.type || ""; div.textContent = payload.text; box.appendChild(div); box.scrollTop = box.scrollHeight; }
+      if (/certificate created/i.test(payload.text || "")) { state.signinUrl = ""; if (state.view === "run") viewRun(); }
+    } else if (channel === "installer:openExternal") {
+      state.signinUrl = payload.url; if (state.view === "run") viewRun();
+    } else if (channel === "installer:clipboard") {
+      bridge?.copyText(payload.text);
+    } else if (channel === "scan:progress") {
+      state.scan.fraction = payload.fraction; const bar = document.querySelector(".scanbar i"); if (bar) bar.style.width = `${Math.round(payload.fraction * 100)}%`;
+    } else if (channel === "scan:found") {
+      if (!state.scan.found.some((f) => f.ip === payload.ip)) state.scan.found.push(payload);
+      if (state.view === "home") viewHome();
+    } else if (channel === "device:authPrompt") {
+      $("dock-hint").innerHTML = "<b>Look at the TV</b><span>Choose Allow and tick Always allow</span>";
+      toast("Look at the TV: choose Allow on “Allow USB debugging?”", 6000);
+    }
+  };
+  source.onerror = () => { source.close(); setTimeout(connectEvents, 1500); };
+}
+
+// ---------------- Saved device actions ----------------
+function openDevice(id) {
+  const d = state.info.devices.find((item) => item.id === id);
+  if (!d) return;
+  openSheet(`<h2>${esc(d.name)}</h2><p class="lede">${esc(d.ip)}, ${esc(d.os || d.platform)}</p>
+    <button class="key" id="dv-setup"><span class="grow"><span class="title">${d.lastSetup ? "Update Nuvio and re-run setup" : "Set up this TV"}</span><span class="sub">Connects, then shows the plan before changing anything</span></span><span class="chev">›</span></button>
+    ${d.platform === "android" ? `<button class="key" id="dv-open"><span class="grow"><span class="title">Open Nuvio on the TV</span></span><span class="chev">›</span></button>` : ""}
+    <div style="height:8px"></div><button class="btn full danger" id="dv-remove">Forget this TV</button>`);
+  $("dv-setup").onclick = () => { closeSheet(); go("connect", { target: { profile: d.profile, ip: d.ip, passphrase: "" } }); setTimeout(connectNow, 50); };
+  $("dv-open")?.addEventListener("click", async () => { try { await invoke("device:launch", { ip: d.ip, pkg: d.choices?.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv" }); toast("Opening on the TV"); } catch (e) { toast(e.message); } closeSheet(); });
+  $("dv-remove").onclick = async () => { await invoke("device:remove", id); closeSheet(); await refreshInfo(); render(); };
+}
+
+// ---------------- Settings ----------------
+async function openSettings() {
+  await refreshInfo();
+  const s = state.info.settings; const mb = Math.round((state.info.storageBytes || 0) / 1048576);
+  openSheet(`<h2>Settings</h2>
+    <div class="group">
+      ${toggle("set-auto", s.autoPrepare, "Prepare downloads when the app opens", "Fetches new Nuvio builds for your saved TVs ahead of time, so setup at the TV only uploads.")}
+      ${toggle("set-all", s.prepareAllPlatforms, "Keep every build on this phone", "About 600 MB. Handy for setting up other people's TVs with no internet at their place.")}
     </div>
-    <div class="app-option">
-      <label class="check"><input type="checkbox" id="pick-legacy" checked><span>Nuvio Legacy (native, fast)</span></label>
-      <select id="legacy-variant" aria-label="Nuvio Legacy build">
-        <option value="auto">Auto-detect TV version</option>
-        <option value="40">2018-2020 TV (Tizen 4 / 5 / 5.5)</option>
-        <option value="60">2021 TV (Tizen 6)</option>
-        <option value="65">2022-2023 TV (Tizen 6.5 / 7)</option>
-        <option value="80">2024+ TV (Tizen 8 / 9)</option>
-      </select>
-      <div class="app-note">Latest release from iqui27/nuvio-native-legacy. Written in C with no web engine, so it runs much faster than the web app on older TVs. Installs next to regular Nuvio.</div>
-    </div>
-    <div class="app-option">
-      <label class="check"><input type="checkbox" id="pick-nuvio"><span>Nuvio (web app)</span></label>
-      <select id="version" aria-label="Nuvio version"><option value="">Loading releases…</option></select>
-      <div class="file-row hidden" id="file-row">
-        <span id="file-name"></span>
-        <button class="small" id="clear-file">Clear</button>
-      </div>
-      <input type="file" id="file-input" accept=".wgt" hidden>
-    </div>
-    <div class="app-option">
-      <label class="check"><input type="checkbox" id="pick-plex"><span>Plex</span></label>
-      <div class="app-note">SamSUCKS-based Plex client, built into this app · needs a 2022+ TV (Tizen 6.5)</div>
-    </div>
-    <div class="signin hidden" id="signin">
-      <strong>Samsung sign-in needed</strong>
-      <p>Sign in once so Samsung can issue this TV's certificate. After signing in, come back to this app; the install continues by itself.</p>
-      <a class="button primary" id="signin-chrome" href="#">Sign in with Chrome</a>
-      <div class="launch-row" style="margin-top:8px">
-        <button class="small" id="signin-inapp">Use in-app sign-in</button>
-        <button class="small" id="signin-copy">Copy link</button>
-      </div>
-    </div>
-    <div class="status" id="status"><span class="dot"></span><span id="status-text">Ready</span></div>
-    <div class="actions">
-      <button class="primary" id="install">Install / Update selected</button>
-      <div class="launch-row">
-        <button id="launch-legacy">Launch Legacy</button>
-        <button id="launch-nuvio">Launch Nuvio</button>
-        <button id="launch-plex">Launch Plex</button>
-      </div>
-    </div>
-    <p class="hint">The first install asks you to sign in with a Samsung account once. Samsung issues a signing certificate tied to your TV, and both apps use it. It's saved on this phone for future updates.</p>
-  </section>
+    <div class="row"><button class="btn" id="prep-now">Prepare now</button><button class="btn" id="clear">Clear downloads (${mb} MB)</button></div>
+    <h3>Samsung certificate</h3><p class="small muted">Back it up so a new phone can update Samsung TVs without signing in again.</p>
+    <label class="field"><span>Backup password</span><input type="password" id="cert-pass"></label>
+    <div class="row"><button class="btn" id="cert-export">Back up</button><button class="btn" id="cert-import">Restore</button></div>
+    <h3>About</h3><p class="small muted">TV Setup ${esc(state.info.version)}. Debloat lists and home screen from CleanYourTV (MIT, ${esc(state.info.lists.count)} tested lists). Nuvio Legacy by iqui27. Nuvio by NuvioMedia. <a class="link" href="legacy-installer.html?t=${encodeURIComponent(token)}">Old Samsung installer</a></p>`, () => {});
+  const save = async () => { state.info.settings = await invoke("settings:set", { autoPrepare: document.querySelector('[name="set-auto"]').checked, prepareAllPlatforms: document.querySelector('[name="set-all"]').checked }); };
+  document.querySelector('[name="set-auto"]').onchange = save; document.querySelector('[name="set-all"]').onchange = save;
+  $("prep-now").onclick = () => { closeSheet(); prepare(true); };
+  $("clear").onclick = async () => { await invoke("storage:clear"); toast("Downloads cleared"); closeSheet(); };
+  $("cert-export").onclick = async () => {
+    try { const r = await invoke("certs:export", $("cert-pass").value); bridge ? bridge.saveFile(r.fileName, r.text) : toast("Saved"); toast(`Backed up ${r.tvCount} TV certificate(s)`); } catch (e) { toast(e.message, 5000); }
+  };
+  $("cert-import").onclick = async () => {
+    const file = await pickFile(".json,.txt,application/json"); if (!file) return;
+    try { const r = await invoke("certs:import", $("cert-pass").value, await file.text()); toast(`Restored ${r.tvCount ?? ""} certificate(s)`); } catch (e) { toast(e.message, 5000); }
+  };
+}
 
-  <section class="card">
-    <h2>Prepare ahead</h2>
-    <div class="status" id="prep-status"><span class="dot"></span><span id="prep-status-text">Not prepared yet</span></div>
-    <button id="prepare">Download &amp; pre-sign selected apps now</button>
-    <label class="check" style="margin-top:12px;font-size:14px;font-weight:500"><input type="checkbox" id="auto-prepare" checked><span>Prepare automatically when this app opens</span></label>
-    <p class="hint">Downloads the newest builds and signs them with your saved TV certificates at home, so at the TV, Install only has to connect, upload and install. Uses about 40 MB per Nuvio Legacy update, so open the app on Wi-Fi.</p>
-  </section>
+async function prepare(manual = false) {
+  try {
+    const r = await invoke("prepare:run", { all: false });
+    if (manual && r.nothing) toast("Set up a TV first, or turn on Keep every build.");
+    else if (manual) toast("Preparing downloads in the background");
+  } catch (e) { if (manual) toast(e.message); }
+}
 
-  <section class="card">
-    <h2>Samsung CA files</h2>
-    <div class="status" id="ca-status"><span class="dot"></span><span id="ca-status-text">Checking…</span></div>
-    <div class="launch-row">
-      <button id="ca-copy">Copy download link</button>
-      <button id="ca-load">Load zip…</button>
-    </div>
-    <input type="file" id="ca-file" accept=".zip,application/zip" hidden>
-    <p class="hint">Needed once, before the first certificate is created. If the installer can't download them itself, copy the link, open it in Chrome, then load the downloaded zip here.</p>
-  </section>
+async function refreshInfo() { state.info = await invoke("app:info"); }
 
-  <section class="card">
-    <h2>3 · Certificate backup</h2>
-    <div class="status" id="cert-status"><span class="dot"></span><span id="cert-status-text">Checking…</span></div>
-    <div class="field">
-      <label for="cert-pass">Backup passphrase</label>
-      <input id="cert-pass" type="password" autocomplete="new-password" placeholder="At least 6 characters">
-    </div>
-    <div class="launch-row">
-      <button id="cert-backup">Back up…</button>
-      <button id="cert-restore">Restore…</button>
-    </div>
-    <input type="file" id="cert-file" accept=".json,application/json" hidden>
-    <p class="hint">The certificate lets this phone update the apps on the TV later. Save the backup somewhere safe, like Google Drive. It's encrypted with your passphrase, and without the passphrase it can't be restored.</p>
-  </section>
-
-  <section class="card">
-    <div class="log-head">
-      <h2>Log</h2>
-      <button class="small" id="copy-log">Copy log</button>
-    </div>
-    <div id="log"></div>
-  </section>
-
-  <script>
-    const token = new URLSearchParams(location.search).get("t") || "";
-    const bridge = window.AndroidBridge || null;
-    const $ = (id) => document.getElementById(id);
-    const logEl = $("log");
-    const LOCAL_FILE = "__local_file__";
-    let localPackagePath = "";
-    let busy = false;
-
-    function store(key, value) {
-      try { localStorage.setItem(key, value); } catch {}
-    }
-    function load(key) {
-      try { return localStorage.getItem(key) || ""; } catch { return ""; }
-    }
-
-    async function invoke(channel, ...args) {
-      const response = await fetch(`/api/invoke?t=${encodeURIComponent(token)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, args })
-      });
-      const body = await response.json();
-      if (body.error) throw new Error(body.error);
-      return body.result;
-    }
-
-    function appendLog(text, type = "info") {
-      const line = document.createElement("div");
-      line.className = type;
-      line.textContent = String(text).replace(/\s+$/, "");
-      if (!line.textContent) return;
-      const atBottom = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
-      logEl.appendChild(line);
-      if (atBottom) logEl.scrollTop = logEl.scrollHeight;
-    }
-
-    function setStatus(text, kind = "") {
-      $("status").className = `status ${kind}`;
-      $("status-text").textContent = text;
-    }
-
-    function setBusy(value) {
-      busy = value;
-      for (const id of ["install", "launch-legacy", "launch-nuvio", "launch-plex", "version", "legacy-variant", "pick-legacy", "pick-nuvio", "pick-plex"]) {
-        $(id).disabled = value;
-      }
-      if (!value) {
-        $("version").disabled = !$("pick-nuvio").checked;
-        $("legacy-variant").disabled = !$("pick-legacy").checked;
-      }
-      bridge?.keepScreenOn(value);
-    }
-
-    function copy(text) {
-      if (bridge) bridge.copyText(text);
-      else navigator.clipboard?.writeText(text);
-    }
-
-    let signinUrl = "";
-    function showSignin(url) {
-      signinUrl = url;
-      // Links that leave the app open in the phone's browser (Chrome), which then
-      // returns the login to this app on localhost:4794. The in-app WebView is kept as a fallback.
-      $("signin-chrome").href = url;
-      $("signin").classList.remove("hidden");
-      appendLog("Samsung sign-in needed. Tap \"Sign in with Chrome\", sign in, then come back here.", "info");
-      setStatus("Waiting for Samsung sign-in (tap Sign in with Chrome)", "busy");
-      $("signin").scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-    function hideSignin() {
-      $("signin").classList.add("hidden");
-    }
-    $("signin-chrome").addEventListener("click", (event) => {
-      if (!bridge) { event.preventDefault(); window.open(signinUrl, "_blank"); }
-      appendLog("Opened Samsung sign-in in Chrome.", "info");
-    });
-    $("signin-inapp").addEventListener("click", () => { if (bridge) bridge.openLogin(signinUrl); else window.open(signinUrl, "_blank"); });
-    $("signin-copy").addEventListener("click", () => { copy(signinUrl); appendLog("Sign-in link copied. Paste it into Chrome.", "info"); });
-
-    function connectEvents() {
-      const source = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
-      source.onmessage = (message) => {
-        const { channel, payload } = JSON.parse(message.data);
-        if (channel === "installer:log") {
-          appendLog(payload.text, payload.type);
-          if (/certificate created|Samsung login timed out/i.test(payload.text || "")) hideSignin();
-          if (busy && payload.type === "info") setStatus(payload.text.slice(0, 90), "busy");
-        } else if (channel === "installer:openExternal") {
-          showSignin(payload.url);
-        } else if (channel === "installer:clipboard") {
-          copy(payload.text);
-        }
-      };
-    }
-
-    function refreshPhoneIp() {
-      const ip = (bridge && bridge.getWifiIp()) || "";
-      $("phone-ip").textContent = ip || "Not on Wi-Fi";
-      return ip;
-    }
-
-    async function loadReleases() {
-      const select = $("version");
-      try {
-        const releases = await invoke("installer:getRecentReleases", "samsung");
-        select.innerHTML = "";
-        releases.forEach((release, index) => {
-          const option = document.createElement("option");
-          option.value = String(release.id);
-          option.textContent = `${release.tagName}${index === 0 ? " (latest)" : ""}${release.prerelease ? " · pre-release" : ""}`;
-          select.appendChild(option);
-        });
-      } catch (error) {
-        select.innerHTML = '<option value="">Latest release</option>';
-        appendLog(`Could not list releases: ${error.message}`, "stderr");
-      }
-      const fileOption = document.createElement("option");
-      fileOption.value = LOCAL_FILE;
-      fileOption.textContent = "Choose a .wgt file on this phone…";
-      select.appendChild(fileOption);
-    }
-
-    async function uploadFile(file) {
-      setStatus(`Preparing ${file.name}…`, "busy");
-      const response = await fetch(`/api/upload?t=${encodeURIComponent(token)}&name=${encodeURIComponent(file.name)}`, {
-        method: "POST",
-        body: file
-      });
-      const body = await response.json();
-      if (body.error) throw new Error(body.error);
-      localPackagePath = body.path;
-      $("file-name").textContent = file.name;
-      $("file-row").classList.remove("hidden");
-      setStatus("Ready");
-    }
-
-    $("version").addEventListener("change", () => {
-      if ($("version").value === LOCAL_FILE) $("file-input").click();
-    });
-
-    $("file-input").addEventListener("change", async () => {
-      const file = $("file-input").files[0];
-      $("file-input").value = "";
-      if (!file) {
-        if (!localPackagePath) $("version").selectedIndex = 0;
-        return;
-      }
-      try {
-        await uploadFile(file);
-      } catch (error) {
-        appendLog(error.message, "error");
-        setStatus("Could not load file", "err");
-        $("version").selectedIndex = 0;
-      }
-    });
-
-    $("clear-file").addEventListener("click", () => {
-      localPackagePath = "";
-      $("file-row").classList.add("hidden");
-      $("version").selectedIndex = 0;
-    });
-
-    $("copy-ip").addEventListener("click", () => copy($("phone-ip").textContent));
-    $("copy-log").addEventListener("click", () => copy(logEl.innerText));
-    $("tv-ip").addEventListener("change", () => store("tvIp", $("tv-ip").value.trim()));
-
-    function readTvIp() {
-      const ip = $("tv-ip").value.trim();
-      if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
-        setStatus("Enter the TV's IP address", "err");
-        $("tv-ip").focus();
-        return "";
-      }
-      store("tvIp", ip);
-      return ip;
-    }
-
-    const appLabels = { legacy: "Nuvio Legacy", nuvio: "Nuvio", plex: "Plex" };
-    const appLabel = (app) => appLabels[app] || app;
-
-    async function runOne(app, action, ip) {
-      const useFile = app === "nuvio" && $("version").value === LOCAL_FILE;
-      const label = appLabel(app);
-      appendLog(`── ${action === "launch" ? "Launching" : "Installing"} ${label} ──`, "success");
-      setStatus(`${action === "launch" ? "Launching" : "Installing"} ${label}…`, "busy");
-      const result = await invoke("installer:run", {
-        platform: "samsung",
-        action,
-        options: {
-          app,
-          ip,
-          mode: "simple",
-          packagePath: useFile ? localPackagePath : "",
-          releaseId: app === "nuvio" && !useFile ? $("version").value : "",
-          legacyVariant: app === "legacy" ? $("legacy-variant").value : "",
-          samsungCert: { auto: true }
-        }
-      });
-      return result && result.ok ? "" : ((result && result.error) || "Failed");
-    }
-
-    async function run(action, apps) {
-      const ip = readTvIp();
-      if (!ip) return;
-      if (apps.length === 0) {
-        setStatus("Select at least one app", "err");
-        return;
-      }
-      if (apps.includes("nuvio") && action === "install" && $("version").value === LOCAL_FILE && !localPackagePath) {
-        setStatus("Choose a .wgt file first", "err");
-        return;
-      }
-      const phoneIp = refreshPhoneIp();
-      if (phoneIp) appendLog(`This phone's IP is ${phoneIp}. It must match Host PC IP on the TV.`, "info");
-
-      setBusy(true);
-      const failures = [];
-      try {
-        // One at a time: the first install creates the Samsung certificate, the next reuses it.
-        for (const app of apps) {
-          try {
-            const error = await runOne(app, action, ip);
-            if (error) failures.push(`${appLabel(app)}: ${error}`);
-          } catch (error) {
-            appendLog(error.message, "error");
-            failures.push(`${appLabel(app)}: ${error.message}`);
-          }
-        }
-      } finally {
-        setBusy(false);
-        hideSignin();
-      }
-      if (action === "install") { refreshCertStatus(failures.length < apps.length); refreshCaStatus(); }
-      const names = apps.map(appLabel).join(" and ");
-      if (failures.length === 0) {
-        setStatus(action === "launch" ? `Launched ${names}` : `${names} installed on the TV`, "ok");
-      } else {
-        const messages = failures.map((failure) => failure.replace(/^\w+: /, ""));
-        const sameError = messages.every((message) => message === messages[0]);
-        setStatus(sameError ? messages[0] : failures.join(" · "), "err");
-      }
-    }
-
-    function selectedApps() {
-      return ["legacy", "nuvio", "plex"].filter((app) => $(`pick-${app}`).checked);
-    }
-
-    $("pick-nuvio").addEventListener("change", () => { $("version").disabled = !$("pick-nuvio").checked; });
-    $("install").addEventListener("click", () => run("install", selectedApps()));
-    $("pick-legacy").addEventListener("change", () => { $("legacy-variant").disabled = !$("pick-legacy").checked; });
-    $("legacy-variant").addEventListener("change", () => store("legacyVariant", $("legacy-variant").value));
-    $("launch-legacy").addEventListener("click", () => run("launch", ["legacy"]));
-    $("launch-nuvio").addEventListener("click", () => run("launch", ["nuvio"]));
-    $("launch-plex").addEventListener("click", () => run("launch", ["plex"]));
-
-    async function refreshCertStatus(justInstalled = false) {
-      try {
-        const { tvCount } = await invoke("certs:status");
-        if (tvCount === 0) {
-          $("cert-status").className = "status";
-          $("cert-status-text").textContent = "No certificates yet. One is created on the first install.";
-        } else {
-          $("cert-status").className = justInstalled ? "status busy" : "status ok";
-          $("cert-status-text").textContent = `Certificate saved for ${tvCount} TV${tvCount === 1 ? "" : "s"}`
-            + (justInstalled ? ". Back it up now." : "");
-        }
-      } catch (error) {
-        $("cert-status-text").textContent = error.message;
-      }
-    }
-
-    function certMessage(text, kind) {
-      $("cert-status").className = `status ${kind}`;
-      $("cert-status-text").textContent = text;
-    }
-
-    window.onFileSaved = (saved) => {
-      if (saved) {
-        certMessage("Backup saved.", "ok");
-        appendLog("Certificate backup saved.", "success");
-      } else {
-        certMessage("Backup not saved.", "err");
-      }
-    };
-
-    $("cert-backup").addEventListener("click", async () => {
-      try {
-        const { fileName, text, tvCount } = await invoke("certs:export", $("cert-pass").value);
-        appendLog(`Exporting certificates for ${tvCount} TV${tvCount === 1 ? "" : "s"}.`, "info");
-        if (bridge) {
-          bridge.saveFile(fileName, text);
-        } else {
-          const link = document.createElement("a");
-          link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-          link.download = fileName;
-          link.click();
-        }
-      } catch (error) {
-        certMessage(error.message, "err");
-      }
-    });
-
-    $("cert-restore").addEventListener("click", () => {
-      if ($("cert-pass").value.length < 6) {
-        certMessage("Enter the backup's passphrase first.", "err");
-        $("cert-pass").focus();
-        return;
-      }
-      $("cert-file").click();
-    });
-
-    $("cert-file").addEventListener("change", async () => {
-      const file = $("cert-file").files[0];
-      $("cert-file").value = "";
-      if (!file) return;
-      try {
-        const result = await invoke("certs:import", $("cert-pass").value, await file.text());
-        certMessage(`Restored. Certificate saved for ${result.tvCount} TV${result.tvCount === 1 ? "" : "s"}.`, "ok");
-        appendLog(`Restored ${result.restored} certificate file(s) from backup.`, "success");
-      } catch (error) {
-        certMessage(error.message, "err");
-      }
-    });
-
-    async function refreshCaStatus() {
-      try {
-        const ca = await invoke("samsungca:status");
-        $("ca-status").className = ca.installed ? "status ok" : "status";
-        $("ca-status-text").textContent = ca.installed ? "Installed" : "Not installed yet";
-        $("ca-copy").dataset.url = ca.downloadUrl;
-      } catch (error) {
-        $("ca-status-text").textContent = error.message;
-      }
-    }
-
-    $("ca-copy").addEventListener("click", () => {
-      copy($("ca-copy").dataset.url || "https://download.tizen.org/sdk/extensions/tizen-certificate-extension_2.0.75.zip");
-      appendLog("Download link copied. Paste it into Chrome, let it finish, then tap Load zip.", "info");
-    });
-    $("ca-load").addEventListener("click", () => $("ca-file").click());
-    $("ca-file").addEventListener("change", async () => {
-      const file = $("ca-file").files[0];
-      $("ca-file").value = "";
-      if (!file) return;
-      try {
-        $("ca-status").className = "status busy";
-        $("ca-status-text").textContent = `Reading ${file.name}…`;
-        const response = await fetch(`/api/upload?t=${encodeURIComponent(token)}&name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
-        const body = await response.json();
-        if (body.error) throw new Error(body.error);
-        const result = await invoke("samsungca:import", body.path);
-        appendLog(`Samsung CA files installed (${result.imported} files). Run the install again.`, "success");
-      } catch (error) {
-        appendLog(error.message, "error");
-      }
-      refreshCaStatus();
-    });
-
-    $("tv-ip").value = load("tvIp");
-    if (load("legacyVariant")) $("legacy-variant").value = load("legacyVariant");
-    if (load("tvIp")) $("setup").open = false;
-    refreshPhoneIp();
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshPhoneIp(); });
-    connectEvents();
-    loadReleases();
-    refreshCertStatus();
-    refreshCaStatus();
-
-    let preparing = false;
-    function setPrepStatus(text, kind = "") {
-      $("prep-status").className = `status ${kind}`;
-      $("prep-status-text").textContent = text;
-    }
-    async function prepare(quiet = false) {
-      if (preparing) return;
-      const apps = selectedApps();
-      if (apps.length === 0) { if (!quiet) setPrepStatus("Select at least one app above", "err"); return; }
-      preparing = true;
-      $("prepare").disabled = true;
-      setPrepStatus("Preparing… (progress in the log)", "busy");
-      try {
-        const useFile = $("version").value === LOCAL_FILE;
-        const summary = await invoke("installer:prefetch", {
-          apps: apps.filter((app) => !(app === "nuvio" && useFile)),
-          ip: $("tv-ip").value.trim(),
-          legacyVariant: $("legacy-variant").value,
-          releaseId: useFile ? "" : $("version").value
-        });
-        const stamp = new Date().toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-        if (summary.errors.length) {
-          setPrepStatus(summary.errors[0], "err");
-        } else {
-          const signedNote = summary.certificates ? "downloaded and pre-signed" : "downloaded (signing happens on first install)";
-          const text = `Ready · ${signedNote} · ${stamp}`;
-          setPrepStatus(text, "ok");
-          store("prepStatus", text);
-        }
-      } catch (error) {
-        setPrepStatus(error.message, "err");
-      } finally {
-        preparing = false;
-        $("prepare").disabled = false;
-      }
-    }
-    $("prepare").addEventListener("click", () => prepare(false));
-    $("auto-prepare").checked = load("autoPrepare") !== "off";
-    $("auto-prepare").addEventListener("change", () => store("autoPrepare", $("auto-prepare").checked ? "on" : "off"));
-    if (load("prepStatus")) setPrepStatus(load("prepStatus"), "ok");
-    if ($("auto-prepare").checked) setTimeout(() => prepare(true), 2500);
-  </script>
+(async () => {
+  connectEvents();
+  try { await refreshInfo(); } catch (e) { toast(e.message); }
+  render();
+  if (state.info?.settings?.autoPrepare) setTimeout(() => prepare(false), 2500);
+  if (state.info?.devices?.some((d) => d.platform === "lg")) invoke("lg:extendAll").catch(() => {});
+  if (!(state.info?.devices || []).length) setTimeout(runScan, 600);
+})();
+</script>
 </body>
 </html>
