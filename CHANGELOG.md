@@ -1,3 +1,7 @@
+## 1.5.1
+
+- Fixed: LG "Set up the clean home screen" failed with `EACCES ... /tmp/tvhome-*.ipk`. Android apps can't write to /tmp; TV Home is now built in the app's own temp folder.
+
 ## 1.5.0
 
 - **LG: clean home screen.** Setup now installs **TV Home**, a home screen built on the phone from the apps actually installed on that LG TV: Nuvio as the big first tile, then your streaming apps, then Live TV, HDMI inputs and Settings. Remote D-pad and Magic Remote pointer both work. It opens at the end of setup.

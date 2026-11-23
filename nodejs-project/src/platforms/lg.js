@@ -244,7 +244,10 @@ async function run({ ip, choices, passphrase }, job) {
         job.log(`TV Home tiles: ${tiles.map((tile) => tile.name).join(", ")}`);
         step.detail("Building TV Home…");
         const ipk = lgHome.buildIpk(tiles);
-        const tmp = require("node:path").join(require("node:os").tmpdir(), `tvhome-${Date.now()}.ipk`);
+        // Android apps can't write to /tmp; use the app's own temp folder.
+        const tempDir = require("../electron-shim").app.getPath("temp");
+        fs.mkdirSync(tempDir, { recursive: true });
+        const tmp = require("node:path").join(tempDir, `tvhome-${Date.now()}.ipk`);
         fs.writeFileSync(tmp, ipk);
         try {
           await installIpk(client, tmp, (sent, total) => step.progress(sent / total * 0.8, "Installing TV Home…"));
