@@ -1,3 +1,11 @@
+## 1.6.0
+
+- **Horizon Home** (from [Horizon Home Kit](https://github.com/jyotiprakash101/horizon-home-kit), MIT) is now a home screen choice for Android TV and Google TV, next to the minimal CleanYourTV one. Artwork backdrop, Nuvio's Continue Watching row, streaming-service pages powered by Nuvio, a Live TV guide, and memory/weather in the top bar. Recommended on boxes with enough memory.
+  - Installed with its permissions (TV guide, memory panel), Home set to Horizon, and its Home-button service turned on. On Android TV the stock home can be turned off; on Google TV it stays so casting keeps working.
+  - Your greeting name, TMDB key, Live TV link and NextDNS profile (Settings > Horizon Home) are handed to Horizon during setup.
+- **Network-wide ad blocking via NextDNS** (Horizon Kit's ad-block script, ported): sets the TV's private DNS to your NextDNS profile. Undo restores the previous DNS.
+- Undo also removes Horizon and its Home-button service.
+
 ## 1.5.1
 
 - Fixed: LG "Set up the clean home screen" failed with `EACCES ... /tmp/tvhome-*.ipk`. Android apps can't write to /tmp; TV Home is now built in the app's own temp folder.

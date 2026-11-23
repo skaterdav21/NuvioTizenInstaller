@@ -79,6 +79,8 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   handlers.set("device:run", async (_event, request) => {
     const platform = platformOf(request.profile);
     const choices = request.choices || {};
+    // Horizon's keys live in this phone's settings; they're handed to the TV, never shown in the UI.
+    if (choices.homeStyle === "horizon" || choices.dnsBlock) choices.horizon = { ...((await store.getSettings()).horizon || {}) };
     if (platform === "samsung") return startJob("Setting up your Samsung TV", samsung.stepsFor(choices), (job) => samsung.run(request, job));
     if (platform === "lg") return startJob("Setting up your LG TV", lg.stepsFor(choices), (job) => lg.run(request, job));
     return startJob("Setting up your TV", android.stepsFor(choices), (job) => android.run(request, job));

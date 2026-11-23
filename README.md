@@ -5,8 +5,8 @@ Phone app that sets up TVs and streaming boxes from Android: installs the best N
 | Device | Nuvio | Home screen | Ads & tracking |
 |---|---|---|---|
 | Samsung (Tizen 4+) | Nuvio Legacy native TPK, signed for the TV | n/a | Settings checklist |
-| LG (webOS, Developer Mode) | Nuvio Legacy IPK | n/a | Settings checklist, Dev Mode kept alive |
-| NVIDIA Shield, Sony, onn, other Android/Google TV | Official or Legacy lite | CleanYourTV launcher | Tested per-model lists + guards |
+| LG (webOS, Developer Mode) | Nuvio Legacy IPK | TV Home (generated per TV) | Settings checklist, Dev Mode kept alive |
+| NVIDIA Shield, Sony, onn, other Android/Google TV | Official or Legacy lite | Horizon Home or CleanYourTV launcher | Tested per-model lists + guards, optional NextDNS |
 | Fire TV | Official or Legacy lite | Locked by Amazon | Tested per-model lists + guards |
 
 ## Layout
@@ -28,4 +28,4 @@ https://github.com/skaterdav21/NuvioTizenInstaller/releases/latest/download/Nuvi
 
 ## Credits
 
-Debloat lists and home screen: [CleanYourTV](https://github.com/Gathin23/cleanyourtv) (MIT). Nuvio Legacy: [iqui27/nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy). Nuvio: [NuvioMedia](https://github.com/NuvioMedia). Font: Archivo (OFL).
+Horizon home screen: [Horizon Home Kit](https://github.com/jyotiprakash101/horizon-home-kit) (MIT). Debloat lists and minimal home screen: [CleanYourTV](https://github.com/Gathin23/cleanyourtv) (MIT). Nuvio Legacy: [iqui27/nuvio-native-legacy](https://github.com/iqui27/nuvio-native-legacy). Nuvio: [NuvioMedia](https://github.com/NuvioMedia). Font: Archivo (OFL).

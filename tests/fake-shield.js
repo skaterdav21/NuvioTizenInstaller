@@ -32,7 +32,9 @@ function shell(command, state) {
   }
   for (const [, pkg] of command.matchAll(/pm enable --user 0 ([\w.]+)/g)) tv.disabled.delete(pkg);
   for (const [, pkg] of command.matchAll(/pm uninstall ([\w.]+)/g)) tv.installed.delete(pkg);
-  for (const [, key, value] of command.matchAll(/settings put global (\w+) ([\d.]+)/g)) tv.settings[key] = value;
+  for (const [, key, value] of command.matchAll(/settings put global (\w+) ([^;\s]+)/g)) tv.settings[key] = value;
+  for (const [, key] of command.matchAll(/settings delete global (\w+)/g)) delete tv.settings[key];
+  if (/settings delete secure enabled_accessibility_services/.test(command)) tv.secure.enabled_accessibility_services = "null";
   for (const [, value] of command.matchAll(/settings put secure enabled_accessibility_services '([^']*)'/g)) tv.secure.enabled_accessibility_services = value;
   for (const [, comp] of command.matchAll(/set-home-activity --user 0 ([\w.]+)\//g)) tv.home = comp;
   if (command.includes("@@ro.product")) {

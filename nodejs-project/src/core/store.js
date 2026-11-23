@@ -63,7 +63,8 @@ async function getDevice(id) {
 const defaultSettings = {
   autoPrepare: true,
   prepareAllPlatforms: false,
-  lgAutoExtend: true
+  lgAutoExtend: true,
+  horizon: { name: "", tmdb: "", livetv: "", nextdnsId: "", nextdnsKey: "" }
 };
 
 async function getSettings() {
@@ -71,7 +72,9 @@ async function getSettings() {
 }
 
 async function setSettings(patch) {
-  const next = { ...(await getSettings()), ...patch };
+  const current = await getSettings();
+  const next = { ...current, ...patch };
+  if (patch.horizon) next.horizon = { ...current.horizon, ...patch.horizon };
   await writeJson("settings.json", next);
   return next;
 }

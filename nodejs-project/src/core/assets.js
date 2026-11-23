@@ -46,6 +46,11 @@ const CATALOG = {
     label: "Clean home screen (CleanYourTV launcher)",
     bundled: "tvhome.apk",
     package: "com.gathin.tvhome"
+  },
+  horizon: {
+    label: "Horizon Home (Horizon Home Kit)",
+    bundled: "horizon.apk",
+    package: "com.horizon.home"
   }
 };
 

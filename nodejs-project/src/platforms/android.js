@@ -10,6 +10,13 @@ const store = require("../core/store");
 const debloat = require("./debloat");
 
 const LAUNCHER_PKG = "com.gathin.tvhome";
+// Horizon Home Kit (MIT): Nuvio-first home with artwork, Continue Watching and a Live TV guide.
+const HORIZON = {
+  pkg: "com.horizon.home",
+  activity: "com.horizon.home/.HomeActivity",
+  service: "com.horizon.home/com.horizon.home.HomeButtonService",
+  grants: ["android.permission.READ_EXTERNAL_STORAGE", "com.android.providers.tv.permission.READ_EPG_DATA", "android.permission.READ_TV_LISTINGS", "android.permission.DUMP"]
+};
 const LAUNCHER_ACTIVITY = `${LAUNCHER_PKG}/.MainActivity`;
 const HOME_QUERY = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
 const CLAIM_QUERY = "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
@@ -99,6 +106,12 @@ function recommendNuvio(device) {
   return "nuvio-official";
 }
 
+function recommendHomeStyle(device) {
+  // Horizon is the richer screen (~160 MB); the CleanYourTV launcher suits tight-memory boxes.
+  if (device.isFire || (device.sdk && device.sdk < 26)) return "clean";
+  return device.memMb && device.memMb < 1400 ? "clean" : "horizon";
+}
+
 function defaultHomeMode(device) {
   if (device.sdk && device.sdk < 26) return "none";
   if (device.isFire) return "none";
@@ -135,13 +148,15 @@ async function inspect({ ip, profile }, { onAuthPrompt } = {}) {
     installed: {
       nuvio: nuvioInstalled,
       launcher: device.packages.has(LAUNCHER_PKG),
+      horizon: device.packages.has(HORIZON.pkg),
       smarttube: device.packages.has("com.teamsmart.videomanager.tv"),
       plex: device.packages.has("com.plexapp.android"),
       youtube: device.packages.has("com.google.android.youtube.tv")
     },
     recommendations: {
       nuvio: recommendNuvio(device),
-      homeMode: defaultHomeMode(device)
+      homeMode: defaultHomeMode(device),
+      homeStyle: recommendHomeStyle(device)
     },
     debloat: plan,
     undoAvailable: Boolean(undo.disabled.length || undo.stockLauncher || undo.homeMode)
@@ -158,8 +173,9 @@ function stepsFor(choices) {
   const steps = [{ id: "connect", label: "Connect to the TV" }];
   if (choices.nuvio && choices.nuvio !== "skip") steps.push({ id: "nuvio", label: "Install Nuvio" });
   if (choices.smarttube) steps.push({ id: "smarttube", label: "Install SmartTube" });
-  if (choices.homeMode && choices.homeMode !== "none") steps.push({ id: "home", label: "Set up the clean home screen" });
+  if (choices.homeMode && choices.homeMode !== "none") steps.push({ id: "home", label: choices.homeStyle === "horizon" ? "Set up Horizon Home" : "Set up the clean home screen" });
   if (choices.debloat?.length) steps.push({ id: "debloat", label: "Remove ads, tracking & bloat" });
+  if (choices.dnsBlock && choices.horizon?.nextdnsId) steps.push({ id: "dns", label: "Block ads network-wide (NextDNS)" });
   if (choices.speed) steps.push({ id: "speed", label: "Speed tweaks" });
   steps.push({ id: "finish", label: "Finish up" });
   return steps;
@@ -214,11 +230,12 @@ async function pushLauncherConfig(adb, config) {
 }
 
 async function enableAccessibilityService(adb, service) {
-  const component = `${LAUNCHER_PKG}/.${service}`;
+  const component = service.includes("/") ? service : `${LAUNCHER_PKG}/.${service}`;
   const before = (await adb.shell("settings get secure enabled_accessibility_services")).trim();
   const list = before && before !== "null" ? before.split(":").filter(Boolean) : [];
   if (!list.includes(component)) list.push(component);
-  await adb.shell(`cmd appops set ${LAUNCHER_PKG} AUTO_START allow 2>/dev/null; settings put secure enabled_accessibility_services '${list.join(":")}'; settings put secure accessibility_enabled 1`);
+  const pkg = component.split("/")[0];
+  await adb.shell(`cmd appops set ${pkg} AUTO_START allow 2>/dev/null; settings put secure enabled_accessibility_services '${list.join(":")}'; settings put secure accessibility_enabled 1`);
   return before;
 }
 
@@ -281,6 +298,58 @@ async function setupHome(adb, job, step, device, choices, deviceKey, dockApps) {
   return "Installed.";
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+async function setupHorizon(adb, job, step, device, choices, deviceKey, extras) {
+  if (device.sdk && device.sdk < 26) return "Skipped: Horizon needs Android 8 or newer.";
+  step.detail("Installing Horizon Home…");
+  const result = await installApk(adb, job, step, { id: "horizon" }, { label: "Horizon Home", replaceIncompatible: true });
+  if (result.status !== "installed" && !device.packages.has(HORIZON.pkg)) throw new Error(result.detail);
+  step.progress(0.95, "Giving Horizon what it needs (TV guide, memory panel)…");
+  await adb.shell(`${HORIZON.grants.map((perm) => `pm grant ${HORIZON.pkg} ${perm} >/dev/null 2>&1`).join("; ")}; appops set ${HORIZON.pkg} GET_USAGE_STATS allow >/dev/null 2>&1; true`);
+
+  const stock = await findStockLauncher(adb, device);
+  const previousA11y = (await adb.shell("settings get secure enabled_accessibility_services")).trim();
+  await store.updateUndo(deviceKey, (undo) => ({
+    ...undo,
+    stockLauncher: stock || undo.stockLauncher,
+    homeMode: choices.homeMode,
+    homeApp: HORIZON.pkg,
+    accessibility: undo.accessibility ?? previousA11y
+  }));
+
+  step.detail("Making Home open Horizon…");
+  await adb.shell(`cmd package set-home-activity --user 0 ${HORIZON.activity} >/dev/null 2>&1; true`);
+  await enableAccessibilityService(adb, HORIZON.service);
+  let note = "The Home button opens Horizon; the stock home stays as a fallback, so casting keeps working.";
+  if (choices.homeMode === "replace" && stock && !device.isGoogleTv) {
+    await adb.shell(`pm disable-user --user 0 ${stock} >/dev/null 2>&1; cmd package set-home-activity --user 0 ${HORIZON.activity} >/dev/null 2>&1; true`);
+    const now = (await adb.shell(`${HOME_QUERY} 2>/dev/null | tail -n 1`)).trim();
+    if (now.startsWith(`${HORIZON.pkg}/`)) note = "Horizon is now Home. The old home is turned off; Undo brings it back.";
+    else {
+      await adb.shell(`pm enable --user 0 ${stock} >/dev/null 2>&1; true`);
+      job.log(`Home went to ${now || "nothing"} with ${stock} off, so it was turned back on. Horizon still opens from the Home button.`);
+    }
+  }
+  const args = Object.entries(extras).filter(([, value]) => value).map(([key, value]) => `--es ${key} ${shellQuote(value)}`).join(" ");
+  await adb.shell(`cmd package compile -m speed -f ${HORIZON.pkg} >/dev/null 2>&1; am start -n ${HORIZON.activity} ${args} >/dev/null 2>&1; true`, 300000);
+  const missing = [!extras.tmdb && "TMDB key (artwork)", !extras.livetv && "Live TV link (guide)"].filter(Boolean);
+  if (missing.length) job.log(`Horizon works now; add your ${missing.join(" and ")} in TV Setup's Settings and run setup again to fill in the rest.`);
+  return note;
+}
+
+async function setPrivateDns(adb, deviceKey, hostname) {
+  const keys = ["private_dns_mode", "private_dns_specifier"];
+  const before = {};
+  for (const key of keys) before[key] = (await adb.shell(`settings get global ${key}`)).trim();
+  await store.updateUndo(deviceKey, (undo) => ({ ...undo, settings: { ...before, ...undo.settings } }));
+  await adb.shell(`settings put global private_dns_specifier ${hostname}; settings put global private_dns_mode hostname`);
+  const mode = (await adb.shell("settings get global private_dns_mode")).trim();
+  if (mode !== "hostname") throw new Error("The TV didn't accept the private DNS setting.");
+}
+
 async function findStockLauncher(adb, device) {
   const owner = (await adb.shell(`${HOME_QUERY} 2>/dev/null | tail -n 1`)).trim().split("/")[0];
   if (debloat.STOCK_LAUNCHERS.includes(owner)) return owner;
@@ -333,7 +402,15 @@ async function run({ ip, profile, choices }, job) {
     const nuvioPkg = choices.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv";
     const dock = [nuvioPkg, "com.nuvio.tv", "space.nuvio.nativelegacy", choices.smarttube ? "com.teamsmart.videomanager.tv" : "com.google.android.youtube.tv", "com.plexapp.android", "com.netflix.ninja"];
     const dockApps = [...new Set(dock)].slice(0, 5);
-    await job.run("home", (step) => setupHome(adb, job, step, device, choices, deviceKey, dockApps), { optional: true });
+    await job.run("home", (step) => choices.homeStyle === "horizon"
+      ? setupHorizon(adb, job, step, device, choices, deviceKey, {
+        name: choices.horizon?.name || "",
+        tmdb: choices.horizon?.tmdb || "",
+        livetv: (choices.horizon?.livetv || "").replace(/\/manifest\.json$/, ""),
+        nextdns_id: choices.horizon?.nextdnsId || "",
+        nextdns_key: choices.horizon?.nextdnsKey || ""
+      })
+      : setupHome(adb, job, step, device, choices, deviceKey, dockApps), { optional: true });
   }
 
   if (choices.debloat?.length) {
@@ -353,6 +430,14 @@ async function run({ ip, profile, choices }, job) {
     }, { optional: true });
   }
 
+  if (choices.dnsBlock && choices.horizon?.nextdnsId) {
+    await job.run("dns", async () => {
+      const id = String(choices.horizon.nextdnsId).trim().replace(/[^a-z0-9]/gi, "");
+      await setPrivateDns(adb, deviceKey, `${id}.dns.nextdns.io`);
+      return `Ads and trackers blocked for every app through NextDNS (${id})`;
+    }, { optional: true });
+  }
+
   if (choices.speed) {
     await job.run("speed", async (step) => {
       const keys = ["window_animation_scale", "transition_animation_scale", "animator_duration_scale"];
@@ -360,7 +445,7 @@ async function run({ ip, profile, choices }, job) {
       for (const key of keys) before[key] = (await adb.shell(`settings get global ${key}`)).trim();
       await store.updateUndo(deviceKey, (undo) => ({ ...undo, settings: { ...before, ...undo.settings } }));
       await adb.shell(keys.map((key) => `settings put global ${key} 0.5`).join("; "));
-      const compileTargets = [...new Set([...installedPackages, LAUNCHER_PKG, "com.nuvio.tv", "space.nuvio.nativelegacy"])];
+      const compileTargets = [...new Set([...installedPackages, LAUNCHER_PKG, HORIZON.pkg, "com.nuvio.tv", "space.nuvio.nativelegacy"])];
       let index = 0;
       for (const pkg of compileTargets) {
         index += 1;
@@ -405,7 +490,7 @@ async function undo({ ip, deviceKey, removeLauncher = true }, job) {
       const value = record.accessibility && record.accessibility !== "null" ? record.accessibility : "";
       await adb.shell(value ? `settings put secure enabled_accessibility_services '${value}'` : "settings delete secure enabled_accessibility_services");
     }
-    if (removeLauncher) await adb.shell(`pm uninstall ${LAUNCHER_PKG} >/dev/null 2>&1; true`);
+    if (removeLauncher) await adb.shell(`pm uninstall ${LAUNCHER_PKG} >/dev/null 2>&1; pm uninstall ${HORIZON.pkg} >/dev/null 2>&1; true`);
     return record.stockLauncher ? `${record.stockLauncher} is Home again` : "Home unchanged";
   }, { optional: true });
   await job.run("settings", async () => {

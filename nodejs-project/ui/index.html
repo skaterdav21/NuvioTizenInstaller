@@ -376,7 +376,8 @@ function defaultChoices(s) {
   if (s.platform === "samsung") return { legacyVariant: s.recommendations.legacyVariant || "auto" };
   if (s.platform === "lg") return { nuvio: s.installed?.nuvioVersion ? "default" : "default", home: true, bootHome: Boolean(s.rooted) };
   const selected = s.debloat.categories.flatMap((c) => c.items.filter((i) => i.selected).map((i) => i.pkg));
-  return { nuvio: s.recommendations.nuvio, homeMode: s.recommendations.homeMode, debloat: selected, speed: true, smarttube: false, replaceIncompatible: false };
+  const hz = state.info?.settings?.horizon || {};
+  return { nuvio: s.recommendations.nuvio, homeMode: s.recommendations.homeMode, homeStyle: s.recommendations.homeStyle || "clean", debloat: selected, speed: true, smarttube: false, replaceIncompatible: false, dnsBlock: Boolean(hz.nextdnsId) };
 }
 
 function radio(name, value, current, title, desc, recommended) {
@@ -403,13 +404,17 @@ function viewPlan() {
       radio("home", "replace", c.homeMode, "Replace the home screen", s.isGoogleTv ? "Turns off Google TV's home. Casting from phones can stop working on Google TV." : "Turns off the stock home. Undo brings it back.", rec.homeMode === "replace") +
       radio("home", "redirect", c.homeMode, "Home button opens the clean screen", "Keeps the stock home and casting working behind it.", rec.homeMode === "redirect") +
       radio("home", "none", c.homeMode, "Leave the home screen alone", "");
-    body += `<div class="group"><div class="head"><b>Clean home screen</b><span class="muted">your apps, no ads, Nuvio first</span></div>${homeOptions}</div>`;
+    const hz = state.info?.settings?.horizon || {};
+    const canHome = !s.isFire && !(s.sdk && s.sdk < 26);
+    const styleOptions = canHome ? radio("style", "horizon", c.homeStyle, "Horizon Home", `Artwork backdrop, Nuvio's Continue Watching, a Live TV guide, memory and weather in the top bar. About 160 MB.${c.nuvio === "nuvio-legacy-android" ? " Continue Watching needs the official Nuvio app." : ""}${!hz.tmdb ? " Add a TMDB key in Settings for artwork." : ""}`, rec.homeStyle === "horizon") +
+      radio("style", "clean", c.homeStyle, "Minimal (CleanYourTV)", "Just your apps in a tidy grid with Nuvio first. Lightest on memory.", rec.homeStyle === "clean") : "";
+    body += `<div class="group"><div class="head"><b>Home screen</b><span class="muted">no ads, Nuvio first</span></div>${styleOptions}${canHome ? `<div class="opt" style="padding-bottom:0"><span class="d">How it takes over Home</span></div>` : ""}${homeOptions}</div>`;
     const d = s.debloat; const count = c.debloat.length;
     body += `<div class="group"><div class="head"><b>Ads, tracking & bloat</b></div>
       <div class="opt" id="review"><span class="grow"><span class="t">${count} of ${d.total} will be turned off</span>
       <span class="d">${d.matched ? `From the tested list for ${esc(d.matched.tv)}${d.matched.exact ? "" : " (closest match)"}.` : d.total ? "No tested list for this exact model, so only what similar TVs agree on." : "Nothing to remove on this TV."} Turned off, not deleted. Undo turns everything back on.</span></span>
       ${d.total ? `<button class="link" id="review-btn">Review</button>` : ""}</div></div>`;
-    body += `<div class="group">${toggle("speed", c.speed, "Speed tweaks", "Quicker animations, and apps pre-compiled so they open faster.")}
+    body += `<div class="group">${hz.nextdnsId ? toggle("dns", c.dnsBlock, "Block ads in every app (NextDNS)", `Points the TV's private DNS at your NextDNS profile ${esc(hz.nextdnsId)}. Undo puts it back.`) : ""}${toggle("speed", c.speed, "Speed tweaks", "Quicker animations, and apps pre-compiled so they open faster.")}
       ${toggle("smarttube", c.smarttube, "Add SmartTube", "YouTube without ads, made for TV remotes.")}</div>`;
     if (s.undoAvailable) body += `<button class="btn full" id="undo-btn">Undo earlier changes on this TV</button>`;
     if (s.adbOpenWithoutPrompt) body += `<p class="small" style="color:var(--yellow)">This TV lets any device on the network connect without asking. Turn off network debugging when you're done.</p>`;
@@ -463,11 +468,12 @@ function bindPlan() {
     c.nuvio = el.value; setDock("Start setup", estimate(), startRun);
   });
   document.querySelectorAll('input[name="home"]').forEach((el) => el.onchange = () => { c.homeMode = el.value; });
+  document.querySelectorAll('input[name="style"]').forEach((el) => el.onchange = () => { c.homeStyle = el.value; render(); });
   document.querySelectorAll('input[name="lgvar"]').forEach((el) => el.onchange = () => { c.nuvio = el.value; });
   { const el = document.querySelector('input[name="lghome"]'); if (el) el.onchange = () => { c.home = el.checked; }; }
   { const el = document.querySelector('input[name="lgboot"]'); if (el) el.onchange = () => { c.bootHome = el.checked; }; }
   const bindToggle = (name, key) => { const el = document.querySelector(`input[name="${name}"]`); if (el) el.onchange = () => { c[key] = el.checked; }; };
-  bindToggle("speed", "speed"); bindToggle("smarttube", "smarttube"); bindToggle("replace", "replaceIncompatible");
+  bindToggle("speed", "speed"); bindToggle("smarttube", "smarttube"); bindToggle("replace", "replaceIncompatible"); bindToggle("dns", "dnsBlock");
   $("variant")?.addEventListener("change", (e) => { c.legacyVariant = e.target.value; });
   $("review-btn")?.addEventListener("click", openReview);
   $("undo-btn")?.addEventListener("click", startUndo);
@@ -604,12 +610,23 @@ async function openSettings() {
       ${toggle("set-all", s.prepareAllPlatforms, "Keep every build on this phone", "About 600 MB. Handy for setting up other people's TVs with no internet at their place.")}
     </div>
     <div class="row"><button class="btn" id="prep-now">Prepare now</button><button class="btn" id="clear">Clear downloads (${mb} MB)</button></div>
+    <h3>Horizon Home</h3><p class="small muted">Used when you pick Horizon as an Android TV home screen. Stored only on this phone and on the TVs you set up.</p>
+    <label class="field"><span>Name for the greeting</span><input type="text" id="hz-name" value="${esc(s.horizon?.name || "")}"></label>
+    <label class="field"><span>TMDB API key (artwork). Free at <a class="link" href="https://www.themoviedb.org/settings/api">themoviedb.org</a></span><input type="text" id="hz-tmdb" autocomplete="off" value="${esc(s.horizon?.tmdb || "")}"></label>
+    <label class="field"><span>Live TV addon link (for the TV guide)</span><input type="text" id="hz-livetv" autocomplete="off" placeholder="https://…workers.dev/…" value="${esc(s.horizon?.livetv || "")}"></label>
+    <label class="field"><span>NextDNS profile ID (optional, ad blocking)</span><input type="text" id="hz-ndid" autocomplete="off" value="${esc(s.horizon?.nextdnsId || "")}"></label>
+    <label class="field"><span>NextDNS API key (optional, "ads blocked today" counter)</span><input type="password" id="hz-ndkey" autocomplete="off" value="${esc(s.horizon?.nextdnsKey || "")}"></label>
     <h3>Samsung certificate</h3><p class="small muted">Back it up so a new phone can update Samsung TVs without signing in again.</p>
     <label class="field"><span>Backup password</span><input type="password" id="cert-pass"></label>
     <div class="row"><button class="btn" id="cert-export">Back up</button><button class="btn" id="cert-import">Restore</button></div>
-    <h3>About</h3><p class="small muted">TV Setup ${esc(state.info.version)}. Debloat lists and home screen from CleanYourTV (MIT, ${esc(state.info.lists.count)} tested lists). Nuvio Legacy by iqui27. Nuvio by NuvioMedia. <a class="link" href="legacy-installer.html?t=${encodeURIComponent(token)}">Old Samsung installer</a></p>`, () => {});
+    <h3>About</h3><p class="small muted">TV Setup ${esc(state.info.version)}. Horizon Home from Horizon Home Kit (MIT). Debloat lists and minimal home screen from CleanYourTV (MIT, ${esc(state.info.lists.count)} tested lists). Nuvio Legacy by iqui27. Nuvio by NuvioMedia. <a class="link" href="legacy-installer.html?t=${encodeURIComponent(token)}">Old Samsung installer</a></p>`, () => {});
   const save = async () => { state.info.settings = await invoke("settings:set", { autoPrepare: document.querySelector('[name="set-auto"]').checked, prepareAllPlatforms: document.querySelector('[name="set-all"]').checked }); };
   document.querySelector('[name="set-auto"]').onchange = save; document.querySelector('[name="set-all"]').onchange = save;
+  const saveHorizon = async () => {
+    state.info.settings = await invoke("settings:set", { horizon: { name: $("hz-name").value.trim(), tmdb: $("hz-tmdb").value.trim(), livetv: $("hz-livetv").value.trim(), nextdnsId: $("hz-ndid").value.trim(), nextdnsKey: $("hz-ndkey").value.trim() } });
+    toast("Saved");
+  };
+  ["hz-name", "hz-tmdb", "hz-livetv", "hz-ndid", "hz-ndkey"].forEach((id) => $(id).addEventListener("change", saveHorizon));
   $("prep-now").onclick = () => { closeSheet(); prepare(true); };
   $("clear").onclick = async () => { await invoke("storage:clear"); toast("Downloads cleared"); closeSheet(); };
   $("cert-export").onclick = async () => {

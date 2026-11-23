@@ -12,6 +12,8 @@ env:
   # CleanYourTV (MIT): tested debloat lists and the home screen. Bump to pick up new lists.
   CYT_COMMIT: fe6cdcefa817da9f6facd3a17a3c5a086124f258
   APKTOOL_VERSION: 2.10.0
+  # Horizon Home Kit (MIT): the Horizon home screen. Bump to pick up new versions.
+  HORIZON_COMMIT: c8d93f10cdd021711212d7411339f0eb2f639490
 
 jobs:
   build:
@@ -59,6 +61,7 @@ jobs:
         run: |
           node tests/test-adb.js
           node tests/test-android.js
+          node tests/test-android-horizon.js
           node tests/test-lg.js
 
       - name: Prepare signing key
@@ -85,6 +88,21 @@ jobs:
             --ks "$RUNNER_TEMP/signing.jks" --ksAlias nuviotizen --ksPass "$KEYSTORE_PASS" --ksKeyPass "$KEYSTORE_PASS"
           mkdir -p ../../nodejs-project/bundled
           cp out/*-aligned-signed.apk ../../nodejs-project/bundled/tvhome.apk
+          ls -la ../../nodejs-project/bundled
+
+      - name: Build Horizon Home (Horizon Home Kit launcher)
+        env:
+          KEYSTORE_PASS: ${{ secrets.SIGNING_PASSWORD }}
+        run: |
+          git init -q horizon && cd horizon
+          git remote add origin https://github.com/jyotiprakash101/horizon-home-kit
+          git fetch -q --depth 1 origin "$HORIZON_COMMIT"
+          git checkout -q FETCH_HEAD
+          cd launcher
+          ANDROID_HOME="$ANDROID_HOME" bash build.sh
+          java -jar "$RUNNER_TEMP/uber.jar" -a build/HorizonHome.apk -o out --allowResign \
+            --ks "$RUNNER_TEMP/signing.jks" --ksAlias nuviotizen --ksPass "$KEYSTORE_PASS" --ksKeyPass "$KEYSTORE_PASS"
+          cp out/*-aligned-signed.apk ../../nodejs-project/bundled/horizon.apk
           ls -la ../../nodejs-project/bundled
 
       - name: Build the app
