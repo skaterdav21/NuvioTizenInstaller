@@ -92,16 +92,17 @@ jobs:
 
       - name: Build Horizon Home (Horizon Home Kit launcher)
         env:
-          KEYSTORE_PASS: ${{ secrets.SIGNING_PASSWORD }}
+          # Not KEYSTORE_PASS: Horizon's build.sh uses that name for its own public kit key.
+          OUR_SIGN_PASS: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           git init -q horizon && cd horizon
           git remote add origin https://github.com/jyotiprakash101/horizon-home-kit
           git fetch -q --depth 1 origin "$HORIZON_COMMIT"
           git checkout -q FETCH_HEAD
           cd launcher
-          ANDROID_HOME="$ANDROID_HOME" bash build.sh
+          env -u KEYSTORE_PASS -u KEYSTORE ANDROID_HOME="$ANDROID_HOME" bash build.sh
           java -jar "$RUNNER_TEMP/uber.jar" -a build/HorizonHome.apk -o out --allowResign \
-            --ks "$RUNNER_TEMP/signing.jks" --ksAlias nuviotizen --ksPass "$KEYSTORE_PASS" --ksKeyPass "$KEYSTORE_PASS"
+            --ks "$RUNNER_TEMP/signing.jks" --ksAlias nuviotizen --ksPass "$OUR_SIGN_PASS" --ksKeyPass "$OUR_SIGN_PASS"
           cp out/*-aligned-signed.apk ../../nodejs-project/bundled/horizon.apk
           ls -la ../../nodejs-project/bundled
 
