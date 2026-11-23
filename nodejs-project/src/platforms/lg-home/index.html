@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080, user-scalable=no">
+<title>TV Home</title>
+<style>
+  /* Same graphite + remote-color-key language as the TV Setup phone app. */
+  :root { --body:#1b1e24; --key:#262a32; --key-hi:#30353f; --edge:#3a404b; --text:#f2f3f5; --muted:#a9b0bd; --blue:#3e7bfa; --green:#3fb36b; --yellow:#f0b429; --red:#e5484d; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; width:1920px; height:1080px; overflow:hidden; background:var(--body); color:var(--text); font-family: "LG Smart UI", "Roboto", "Helvetica Neue", Arial, sans-serif; }
+  header { position:absolute; left:120px; right:120px; top:64px; display:flex; align-items:baseline; }
+  #clock { font-size:88px; font-weight:700; letter-spacing:-2px; }
+  #date { font-size:30px; color:var(--muted); margin-left:28px; flex:1; }
+  #hint { font-size:24px; color:var(--muted); }
+  main { position:absolute; left:120px; right:120px; top:206px; }
+  .row-title { font-size:26px; color:var(--muted); margin:0 0 14px 4px; font-weight:600; }
+  .row { display:flex; gap:28px; margin-bottom:34px; }
+  .row.low .tile { height:132px; padding:18px 24px; }
+  .row.low .tile .mark { width:44px; height:44px; font-size:19px; top:18px; left:24px; border-radius:12px; }
+  .row.low .tile .name { font-size:28px; }
+  .row.low .tile .sub { display:none; }
+  .tile { width:300px; height:170px; border-radius:22px; background:var(--key); display:flex; flex-direction:column; justify-content:flex-end; padding:22px 26px; position:relative;
+          transition: transform .12s ease-out; box-shadow:0 3px 0 #12141880; }
+  .tile .name { font-size:32px; font-weight:700; }
+  .tile .sub { font-size:20px; color:var(--muted); margin-top:4px; }
+  .tile .mark { position:absolute; top:22px; left:26px; width:54px; height:54px; border-radius:14px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:22px; color:#fff; }
+  .tile.hero { width:628px; height:370px; padding:40px 44px; flex:none; }
+  .tile.hero .name { font-size:64px; letter-spacing:-1px; }
+  .tile.hero .sub { font-size:26px; }
+  .tile.hero .mark { width:84px; height:84px; font-size:34px; border-radius:22px; top:40px; left:44px; }
+  .tile.focus { transform:scale(1.06); background:var(--key-hi); box-shadow:0 0 0 5px var(--text), 0 18px 40px #000a; z-index:2; }
+  .top { display:flex; gap:28px; }
+  .stack { display:flex; flex-direction:column; gap:30px; }
+  .stack .tile { height:170px; }
+  #toast { position:absolute; bottom:60px; left:50%; transform:translateX(-50%); background:var(--text); color:var(--body); padding:16px 30px; border-radius:999px; font-size:26px; font-weight:700; display:none; }
+</style>
+</head>
+<body>
+<header><span id="clock"></span><span id="date"></span><span id="hint">OK opens. Arrows move.</span></header>
+<main id="main"></main>
+<div id="toast"></div>
+<script>
+// TILES is filled in by TV Setup on the phone with the apps actually installed on this TV.
+var TILES = /*TILES*/[{"id":"space.nuvio.native.legacy","name":"Nuvio","sub":"Movies & shows","color":"#3e7bfa","hero":true},{"id":"com.webos.app.hdmi1","name":"HDMI 1","sub":"Input","color":"#4a5160","group":"inputs"}]/*END*/;
+
+function luna(uri, params) {
+  try {
+    var bridge = new PalmServiceBridge();
+    bridge.onservicecallback = function (msg) {
+      try { var r = JSON.parse(msg); if (r.returnValue === false) toast(r.errorText || "Couldn't open that"); } catch (e) {}
+    };
+    bridge.call(uri, JSON.stringify(params || {}));
+  } catch (e) { toast("Open from a webOS TV"); }
+}
+function launch(tile) { luna("luna://com.webos.applicationManager/launch", { id: tile.id }); }
+
+function toast(text) {
+  var el = document.getElementById("toast");
+  el.textContent = text; el.style.display = "block";
+  clearTimeout(toast.t); toast.t = setTimeout(function () { el.style.display = "none"; }, 2500);
+}
+
+function initials(name) { var w = name.replace(/[^A-Za-z0-9+ ]/g, "").split(" "); return w[1] ? w[0].slice(0, 1) + w[1].slice(0, 1) : (w[0] || "?").slice(0, 1); }
+
+function tileHtml(t, index) {
+  return '<div class="tile' + (t.hero ? " hero" : "") + '" data-i="' + index + '"><span class="mark" style="background:' + t.color + '">' + initials(t.name) + '</span>' +
+    '<span class="name">' + t.name + '</span>' + (t.sub ? '<span class="sub">' + t.sub + '</span>' : "") + '</div>';
+}
+
+// Layout: hero + up to 4 apps beside it (2x2), then the rest of the apps, then inputs.
+var rows = [];
+function build() {
+  var hero = TILES.filter(function (t) { return t.hero; })[0];
+  var apps = TILES.filter(function (t) { return !t.hero && t.group !== "inputs"; });
+  var inputs = TILES.filter(function (t) { return t.group === "inputs"; });
+  var html = "";
+  // Hero on the left, a 3-wide grid of up to 6 apps beside it, then the rest and the inputs as short rows.
+  var side = apps.slice(0, 6), rest = apps.slice(6);
+  var cell = function (t) { return tileHtml(t, TILES.indexOf(t)); };
+  html += '<div class="top">';
+  if (hero) html += cell(hero);
+  html += '<div class="stack"><div class="row" style="margin:0">' + side.slice(0, 3).map(cell).join("") + '</div>' +
+          '<div class="row" style="margin:0">' + side.slice(3, 6).map(cell).join("") + '</div></div></div>';
+  html += '<div style="height:40px"></div>';
+  if (rest.length) html += '<div class="row-title">More apps</div><div class="row low">' + rest.slice(0, 5).map(cell).join("") + '</div>';
+  if (inputs.length) html += '<div class="row-title">Inputs</div><div class="row low">' + inputs.slice(0, 5).map(cell).join("") + '</div>';
+  document.getElementById("main").innerHTML = html;
+}
+
+// Spatial focus: move to the nearest tile in the pressed direction.
+var focusEl = null;
+function setFocus(el) {
+  if (!el) return;
+  if (focusEl) focusEl.className = focusEl.className.replace(" focus", "");
+  focusEl = el; el.className += " focus";
+}
+function centre(el) { var r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, r: r }; }
+function move(dx, dy) {
+  var from = centre(focusEl), best = null, bestScore = 1e9;
+  var all = document.querySelectorAll(".tile");
+  for (var i = 0; i < all.length; i++) {
+    if (all[i] === focusEl) continue;
+    var c = centre(all[i]);
+    var ddx = c.x - from.x, ddy = c.y - from.y;
+    if (dx && Math.sign(ddx) !== dx) continue;
+    if (dy && Math.sign(ddy) !== dy) continue;
+    if (dx && Math.abs(ddx) < 10) continue;
+    if (dy && Math.abs(ddy) < 10) continue;
+    var score = dx ? Math.abs(ddx) + Math.abs(ddy) * 2.2 : Math.abs(ddy) + Math.abs(ddx) * 2.2;
+    if (score < bestScore) { bestScore = score; best = all[i]; }
+  }
+  setFocus(best || focusEl);
+}
+
+document.addEventListener("keydown", function (e) {
+  switch (e.keyCode) {
+    case 37: move(-1, 0); break;
+    case 39: move(1, 0); break;
+    case 38: move(0, -1); break;
+    case 40: move(0, 1); break;
+    case 13: launch(TILES[Number(focusEl.getAttribute("data-i"))]); break;
+    case 461: e.preventDefault(); break; // Back: stay on the home screen
+    default: return;
+  }
+  e.preventDefault();
+});
+// Magic Remote pointer: hover focuses, click opens.
+document.addEventListener("mousemove", function (e) { var t = e.target.closest ? e.target.closest(".tile") : null; if (t && t !== focusEl) setFocus(t); });
+document.addEventListener("click", function (e) { var t = e.target.closest ? e.target.closest(".tile") : null; if (t) launch(TILES[Number(t.getAttribute("data-i"))]); });
+
+function tick() {
+  var d = new Date();
+  var h = d.getHours(), m = d.getMinutes();
+  document.getElementById("clock").textContent = ((h % 12) || 12) + ":" + (m < 10 ? "0" : "") + m;
+  document.getElementById("date").textContent = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+build(); tick(); setInterval(tick, 10000);
+setFocus(document.querySelector(".tile.hero") || document.querySelector(".tile"));
+</script>
+</body>
+</html>

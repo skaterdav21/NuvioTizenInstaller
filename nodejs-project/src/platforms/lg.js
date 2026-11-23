@@ -9,6 +9,7 @@ const https = require("node:https");
 const { Client } = require("ssh2");
 const assets = require("../core/assets");
 const store = require("../core/store");
+const lgHome = require("./lg-home");
 
 const NUVIO_ID = "space.nuvio.native.legacy";
 const TEMP_DIR = "/media/developer/temp";
@@ -142,6 +143,32 @@ async function extendSession(token) {
   return { remaining };
 }
 
+// Root (Homebrew Channel) lets TV Home open when the TV turns on. Developer Mode alone can't.
+async function detectRoot(client) {
+  const out = await exec(client, `luna-send-pub -n 1 -f luna://org.webosbrew.hbchannel.service/exec '{"command":"id -u"}' 2>/dev/null`, { timeoutMs: 10000 }).catch(() => "");
+  return /"stdoutString"\s*:\s*"0\\n?"/.test(out) || /"stdoutString"\s*:\s*"0/.test(out);
+}
+
+async function rootExec(client, command) {
+  const payload = JSON.stringify({ command });
+  const out = await exec(client, `luna-send-pub -n 1 -f luna://org.webosbrew.hbchannel.service/exec '${payload.replace(/'/g, "'\\''")}'`, { timeoutMs: 20000 });
+  if (!/"returnValue"\s*:\s*true/.test(out)) throw new Error(`Root command failed: ${out.slice(0, 200)}`);
+  return out;
+}
+
+const BOOT_SCRIPT = "/var/lib/webosbrew/init.d/80-tvsetup-home";
+async function setBootHome(client, enabled) {
+  if (!enabled) return rootExec(client, `rm -f ${BOOT_SCRIPT}`);
+  const script = `#!/bin/sh\n# TV Setup: open TV Home after the TV starts.\n(sleep 25; luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"${lgHome.HOME_ID}"}' >/dev/null 2>&1) &\n`;
+  const b64 = Buffer.from(script.replace(/\\n/g, "\n")).toString("base64");
+  return rootExec(client, `mkdir -p /var/lib/webosbrew/init.d && echo ${b64} | base64 -d > ${BOOT_SCRIPT} && chmod 755 ${BOOT_SCRIPT}`);
+}
+
+async function homeInstalledVersion(client) {
+  const out = await exec(client, `luna-send-pub -n 1 -f luna://com.webos.applicationManager/getAppInfo '{"id":"${lgHome.HOME_ID}"}'`, { timeoutMs: 10000 }).catch(() => "");
+  return (out.match(/"version"\s*:\s*"([^"]+)"/) || [])[1] || "";
+}
+
 async function inspect({ ip, passphrase }) {
   const saved = (await store.getDevice(`lg-${ip}`))?.lg || {};
   passphrase = passphrase || saved.passphrase || "";
@@ -155,13 +182,16 @@ async function inspect({ ip, passphrase }) {
     const apps = await exec(client, `luna-send-pub -n 1 -f luna://com.webos.applicationManager/getAppInfo '{"id":"${NUVIO_ID}"}'`, { timeoutMs: 15000 }).catch(() => "");
     const installedVersion = (apps.match(/"version"\s*:\s*"([^"]+)"/) || [])[1] || "";
     const token = await readSessionToken(client);
+    const rooted = await detectRoot(client);
+    const homeVersion = await homeInstalledVersion(client);
     const deviceKey = `lg-${ip}`;
     await store.saveDevice({ id: deviceKey, platform: "lg", profile: "lg", ip, name: model ? `LG ${model}` : "LG TV", model, os: webos ? `webOS ${webos}` : "webOS", lg: { key, passphrase, token } });
     return {
       platform: "lg", profile: "lg", ip, deviceKey,
       name: model ? `LG ${model}` : "LG TV", model, os: webos ? `webOS ${webos}` : "webOS",
-      installed: { nuvio: installedVersion ? [NUVIO_ID] : [], nuvioVersion: installedVersion },
+      installed: { nuvio: installedVersion ? [NUVIO_ID] : [], nuvioVersion: installedVersion, home: homeVersion },
       sessionTokenSaved: Boolean(token),
+      rooted,
       recommendations: { nuvio: "nuvio-legacy-lg" }
     };
   } finally {
@@ -172,8 +202,9 @@ async function inspect({ ip, passphrase }) {
 function stepsFor(choices) {
   const steps = [{ id: "connect", label: "Connect to the TV" }];
   if (choices.nuvio !== "skip") steps.push({ id: "nuvio", label: "Install Nuvio Legacy" });
+  if (choices.home !== false) steps.push({ id: "home", label: "Set up the clean home screen" });
   steps.push({ id: "session", label: "Keep Developer Mode from expiring" });
-  steps.push({ id: "finish", label: "Open Nuvio" });
+  steps.push({ id: "finish", label: choices.home !== false ? "Open the clean home screen" : "Open Nuvio" });
   return steps;
 }
 
@@ -205,6 +236,36 @@ async function run({ ip, choices, passphrase }, job) {
         return `Nuvio Legacy ${file.tag} installed`;
       });
     }
+    if (choices.home !== false) {
+      await job.run("home", async (step) => {
+        step.detail("Checking which apps this TV has…");
+        const present = await lgHome.detectApps(exec, client);
+        const tiles = lgHome.chooseTiles(present, { listWorked: present.size >= 3 });
+        job.log(`TV Home tiles: ${tiles.map((tile) => tile.name).join(", ")}`);
+        step.detail("Building TV Home…");
+        const ipk = lgHome.buildIpk(tiles);
+        const tmp = require("node:path").join(require("node:os").tmpdir(), `tvhome-${Date.now()}.ipk`);
+        fs.writeFileSync(tmp, ipk);
+        try {
+          await installIpk(client, tmp, (sent, total) => step.progress(sent / total * 0.8, "Installing TV Home…"));
+        } finally {
+          fs.rmSync(tmp, { force: true });
+        }
+        let bootNote = "";
+        if (choices.bootHome) {
+          if (await detectRoot(client)) {
+            await setBootHome(client, true);
+            bootNote = " It opens by itself when the TV turns on.";
+          } else {
+            bootNote = " Opening it at power-on needs a rooted TV, so it's skipped.";
+          }
+        } else if (await detectRoot(client).catch(() => false)) {
+          await setBootHome(client, false).catch(() => {});
+        }
+        await store.saveDevice({ id: deviceKey, platform: "lg", profile: "lg", ip, lgHome: { tiles: tiles.map((tile) => tile.id), installedAt: Date.now() } });
+        return `TV Home installed with ${tiles.length} tiles.${bootNote}`;
+      }, { optional: true });
+    }
     await job.run("session", async () => {
       const token = await readSessionToken(client) || saved.token;
       if (!token) return "Couldn't read the session token; extend it from the Developer Mode app when it runs low.";
@@ -213,9 +274,10 @@ async function run({ ip, choices, passphrase }, job) {
       return remaining ? `Session extended (${remaining} left). The app extends it each time it opens.` : "Token saved; the app extends the session each time it opens.";
     }, { optional: true });
     await job.run("finish", async () => {
-      await launchApp(client, NUVIO_ID);
-      await store.saveDevice({ id: deviceKey, platform: "lg", profile: "lg", ip, lastSetup: Date.now() });
-      return "Nuvio is opening on the TV";
+      const openHome = choices.home !== false && job.step("home").status === "done";
+      await launchApp(client, openHome ? lgHome.HOME_ID : NUVIO_ID);
+      await store.saveDevice({ id: deviceKey, platform: "lg", profile: "lg", ip, lastSetup: Date.now(), choices: { nuvio: choices.nuvio, home: choices.home, bootHome: choices.bootHome } });
+      return openHome ? "TV Home is open on the TV" : "Nuvio is opening on the TV";
     }, { optional: true });
   } finally {
     client?.end();

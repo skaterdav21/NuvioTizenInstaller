@@ -1,3 +1,9 @@
+## 1.5.0
+
+- **LG: clean home screen.** Setup now installs **TV Home**, a home screen built on the phone from the apps actually installed on that LG TV: Nuvio as the big first tile, then your streaming apps, then Live TV, HDMI inputs and Settings. Remote D-pad and Magic Remote pointer both work. It opens at the end of setup.
+- On a rooted LG (Homebrew Channel), TV Home can open by itself when the TV turns on. Without root, LG keeps the Home button for its own screen, so the plan screen shows how to put TV Home first in the app list and on a Quick Access number key.
+- LG setup detects root and an existing TV Home install.
+
 ## 1.4.0: TV Setup
 
 The app is now **TV Setup**: one phone app to set up Samsung, LG, NVIDIA Shield, onn, Sony, other Android/Google TV and Fire TV.

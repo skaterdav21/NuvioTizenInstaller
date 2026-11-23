@@ -27,6 +27,8 @@ const lg = require("../nodejs-project/src/platforms/lg");
 
   const keyServer = http.createServer((req, res) => { res.end(req.url === "/webos_rsa" ? encryptedPem : "no"); }).listen(9991, "127.0.0.1");
   const received = {};
+  const installs = [];
+  const rootCommands = [];
   const commands = [];
   const sshServer = new Server({ hostKeys: [hostKey] }, (client) => {
     client.on("authentication", (ctx) => {
@@ -41,8 +43,15 @@ const lg = require("../nodejs-project/src/platforms/lg");
           const stream = acceptExec();
           commands.push(info.command);
           if (info.command.includes("devmode_enabled")) stream.write("TOKEN123abc\n");
+          else if (info.command.includes("listLaunchPoints")) stream.write('{"launchPoints":[{"id":"space.nuvio.native.legacy"},{"id":"cdp-30"},{"id":"youtube.leanback.v4"},{"id":"netflix"},{"id":"com.webos.app.hdmi1"},{"id":"com.webos.app.hdmi2"}],"returnValue":true}\n');
+          else if (info.command.includes("hbchannel.service/exec")) {
+            const cmd = (info.command.match(/"command":"(.*?)"\}'/) || [])[1] || "";
+            rootCommands.push(cmd);
+            stream.write(cmd.startsWith("id -u") ? '{"returnValue":true,"stdoutString":"0\\n"}\n' : '{"returnValue":true,"stdoutString":""}\n');
+          }
           else if (info.command.includes("os_info")) stream.write('{"webos_release":"6.3.1"}\n{"modelName":"OLED55C1PUB","returnValue":true}');
           else if (info.command.includes("appInstallService/dev/install")) {
+            installs.push(Buffer.from(received["/media/developer/temp/tvsetup.ipk"]));
             stream.write('{"subscribed":true,"returnValue":true}\n');
             setTimeout(() => { stream.write('{"details":{"state":"installing"}}\n'); }, 50);
             setTimeout(() => { stream.write('{"details":{"state":"installed"}}\n'); }, 120);
@@ -82,15 +91,35 @@ const lg = require("../nodejs-project/src/platforms/lg");
   assert.strictEqual(summary.model, "OLED55C1PUB");
   assert.strictEqual(summary.sessionTokenSaved, true);
 
+  assert.strictEqual(summary.rooted, true, "root detected through Homebrew Channel");
   const updates = [];
   jobs.setBroadcaster((channel, payload) => { if (channel === "job:update") updates.push(payload); });
-  const job = jobs.createJob("LG", lg.stepsFor({ nuvio: "default" }));
-  await lg.run({ ip: "127.0.0.1", choices: { nuvio: "default" }, passphrase }, job);
+  const choices = { nuvio: "default", home: true, bootHome: true };
+  const job = jobs.createJob("LG", lg.stepsFor(choices));
+  await lg.run({ ip: "127.0.0.1", choices, passphrase }, job);
   job.finish({});
   const final = updates[updates.length - 1];
-  assert.ok(received["/media/developer/temp/tvsetup.ipk"].equals(ipk), "IPK uploaded byte-identical");
+  assert.strictEqual(installs.length, 2, "Nuvio and TV Home installed");
+  assert.ok(installs[0].equals(ipk), "Nuvio IPK uploaded byte-identical");
+  // The second install is TV Home: unpack it and check the tiles that were baked in.
+  const homeIpk = installs[1];
+  assert.strictEqual(homeIpk.toString("ascii", 0, 8), "!<arch>\n", "TV Home is an ar archive");
+  const zlib = require("node:zlib");
+  let off = 8; const members = {};
+  while (off < homeIpk.length) {
+    const name = homeIpk.toString("ascii", off, off + 16).trim(); const size = Number(homeIpk.toString("ascii", off + 48, off + 58).trim());
+    members[name] = homeIpk.subarray(off + 60, off + 60 + size); off += 60 + size + (size % 2);
+  }
+  assert.deepStrictEqual(Object.keys(members), ["debian-binary", "control.tar.gz", "data.tar.gz"]);
+  const tar = zlib.gunzipSync(members["data.tar.gz"]).toString("latin1");
+  assert.ok(tar.includes('"id": "com.tvsetup.home"'), "appinfo id");
+  const tiles = JSON.parse(tar.match(/\/\*TILES\*\/(.*?)\/\*END\*\//)[1]);
+  console.log("TV Home tiles:", tiles.map((t) => t.name).join(", "));
+  assert.strictEqual(tiles[0].name, "Nuvio");
+  assert.ok(tiles.some((t) => t.name === "Plex") && !tiles.some((t) => t.name === "Hulu"), "only installed apps");
+  assert.ok(rootCommands.some((c) => c.includes("/var/lib/webosbrew/init.d/80-tvsetup-home")), "boot script written on a rooted TV");
   assert.ok(commands.some((c) => c.includes('"ipkUrl":"/media/developer/temp/tvsetup.ipk"')), "install called");
-  assert.ok(commands.some((c) => c.includes("applicationManager/launch") && c.includes("space.nuvio.native.legacy")), "launched");
+  assert.ok(commands.some((c) => c.includes("applicationManager/launch") && c.includes("com.tvsetup.home")), "TV Home opened at the end");
   assert.strictEqual(final.steps.find((s) => s.id === "nuvio").status, "done");
   console.log("steps:", final.steps.map((s) => `${s.id}=${s.status}`).join(" "));
   keyServer.close(); sshServer.close();

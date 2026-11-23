@@ -374,7 +374,7 @@ async function connectNow() {
 
 function defaultChoices(s) {
   if (s.platform === "samsung") return { legacyVariant: s.recommendations.legacyVariant || "auto" };
-  if (s.platform === "lg") return { nuvio: "default" };
+  if (s.platform === "lg") return { nuvio: s.installed?.nuvioVersion ? "default" : "default", home: true, bootHome: Boolean(s.rooted) };
   const selected = s.debloat.categories.flatMap((c) => c.items.filter((i) => i.selected).map((i) => i.pkg));
   return { nuvio: s.recommendations.nuvio, homeMode: s.recommendations.homeMode, debloat: selected, speed: true, smarttube: false, replaceIncompatible: false };
 }
@@ -424,7 +424,16 @@ function viewPlan() {
       ${radio("lgvar", "default", c.nuvio, "Standard build", "Right for most LG TVs.", true)}
       ${radio("lgvar", "highcache", c.nuvio, "High-cache build", "300 MB texture cache for TVs with more memory. Smoother poster scrolling.")}
       ${radio("lgvar", "skip", c.nuvio, "Don't reinstall", "Just extend Developer Mode and open Nuvio.")}</div>
-      <p class="small muted">LG ends Developer Mode after about 50 hours unless it's extended. This app extends it for this TV every time you open it.</p>
+      <div class="group"><div class="head"><b>Clean home screen</b><span class="muted">${s.installed?.home ? "TV Home is installed; this updates it" : "Nuvio first, only your apps, no ads"}</span></div>
+        ${toggle("lghome", c.home, "Install TV Home", "A home screen built from the apps on this TV, plus your HDMI inputs. Opens at the end of setup.")}
+        ${s.rooted ? toggle("lgboot", c.bootHome, "Open TV Home when the TV turns on", "This TV is rooted, so TV Home can start itself after power-on.")
+          : `<div class="opt"><span class="d">LG only lets the Home button open its own screen unless the TV is rooted. The two settings below put TV Home one press away instead.</span></div>`}
+      </div>
+      ${s.rooted ? "" : `<h3>Make TV Home one press away</h3><ol class="howto">
+        <li><span>Press <b>Home</b>, open the app list's <b>Edit</b> mode, and move <b>TV Home</b> to the first spot.</span></li>
+        <li><span>Open <b>TV Home</b>, then <b>hold the 1 key</b> on the remote and choose <b>Register</b> (Quick Access). From then on, holding 1 opens it from anywhere.</span></li>
+        <li><span>Settings → General → System → Additional Settings → Home Settings: turn off <b>Home Auto Launch</b> so LG's home doesn't pop up at power-on.</span></li></ol>`}
+      <p class="small muted">LG ends Developer Mode after about 50 hours unless it's extended. Apps like Nuvio and TV Home stop opening when it lapses, so this app extends it for this TV every time you open it.</p>
       ${checklist("lg")}`;
   }
   $("view").innerHTML = body;
@@ -455,6 +464,8 @@ function bindPlan() {
   });
   document.querySelectorAll('input[name="home"]').forEach((el) => el.onchange = () => { c.homeMode = el.value; });
   document.querySelectorAll('input[name="lgvar"]').forEach((el) => el.onchange = () => { c.nuvio = el.value; });
+  { const el = document.querySelector('input[name="lghome"]'); if (el) el.onchange = () => { c.home = el.checked; }; }
+  { const el = document.querySelector('input[name="lgboot"]'); if (el) el.onchange = () => { c.bootHome = el.checked; }; }
   const bindToggle = (name, key) => { const el = document.querySelector(`input[name="${name}"]`); if (el) el.onchange = () => { c[key] = el.checked; }; };
   bindToggle("speed", "speed"); bindToggle("smarttube", "smarttube"); bindToggle("replace", "replaceIncompatible");
   $("variant")?.addEventListener("change", (e) => { c.legacyVariant = e.target.value; });
