@@ -63,6 +63,7 @@ jobs:
           node tests/test-android.js
           node tests/test-android-horizon.js
           node tests/test-lg.js
+          node tests/test-samsung-push.js
 
       - name: Prepare signing key
         env:

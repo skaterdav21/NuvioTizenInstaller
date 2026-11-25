@@ -1,3 +1,10 @@
+## 1.6.1
+
+- Fixed: Samsung upload stalling with "TV stopped acknowledging the upload (no reply in 30s)" and then "TV did not open the upload channel". The app now sends the package in 4 KB packets, one record each, which is the size it tells the TV to expect (1.6.0 sent up to 256 KB at a time and older Tizen builds lock up on that).
+- Uploads keep a few packets in flight and carry on if a TV doesn't confirm each one, then check the file size on the TV before installing.
+- If an upload attempt does fail, the app opens a fresh connection to the TV before retrying, since a stalled connection stays stuck.
+- New test with three simulated Samsung TVs (strict 4 KB, no confirmations, normal) runs on every build.
+
 ## 1.6.0
 
 - **Horizon Home** (from [Horizon Home Kit](https://github.com/jyotiprakash101/horizon-home-kit), MIT) is now a home screen choice for Android TV and Google TV, next to the minimal CleanYourTV one. Artwork backdrop, Nuvio's Continue Watching row, streaming-service pages powered by Nuvio, a Live TV guide, and memory/weather in the top bar. Recommended on boxes with enough memory.

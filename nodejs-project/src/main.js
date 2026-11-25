@@ -1108,6 +1108,19 @@ function instrumentAdbClient(adbClient) {
 // Opens a sync: service stream and gives a small request/response API on it with
 // proper ADB flow control (one WRTE in flight, wait for OKAY), so large uploads
 // arrive intact instead of flooding the TV's sdbd.
+function packetFor(stream, data) {
+  const header = Buffer.alloc(24);
+  let sum = 0;
+  for (let index = 0; index < data.length; index += 1) sum = (sum + data[index]) >>> 0;
+  header.writeUInt32LE(adbCommands.WRTE, 0);
+  header.writeUInt32LE(stream._localId, 4);
+  header.writeUInt32LE(stream._remoteId, 8);
+  header.writeUInt32LE(data.length, 12);
+  header.writeUInt32LE(sum, 16);
+  header.writeUInt32LE((adbCommands.WRTE ^ 0xffffffff) >>> 0, 20);
+  return Buffer.concat([header, data]);
+}
+
 function openAdbSync(adbClient, timeoutMs = 30000) {
   instrumentAdbClient(adbClient);
   return new Promise((resolve, reject) => {
@@ -1142,10 +1155,21 @@ function openAdbSync(adbClient, timeoutMs = 30000) {
       }
     }
 
-    const maxPayload = () => Math.max(4096, Math.min(Number(adbClient._hostMaxData) || 4096, 256 * 1024));
+    // adbhost tells the TV "4096" in its CNXN; older Tizen sdbd sizes its buffers from that, even
+    // when its own CNXN advertises 256 KB. Packets above 4 KB stall it, so never send more.
+    const maxPayload = () => Math.min(4096, Number(adbClient._hostMaxData) || 4096);
 
+    let acks = 0;
+    stream.on("_ack", () => { acks += 1; });
     const api = {
       maxPayload,
+      get acks() { return acks; },
+      // Sends one WRTE without waiting for its OKAY; resolves when the socket has room again.
+      send(buffer) {
+        if (closed) return Promise.reject(new Error("Upload connection is closed."));
+        const ok = adbClient._stream.write(packetFor(stream, buffer));
+        return ok ? Promise.resolve() : new Promise((resolveDrain) => adbClient._stream.once("drain", resolveDrain));
+      },
       // Sends one WRTE and waits for the TV's OKAY.
       write(buffer, ackTimeoutMs = timeoutMs) {
         if (closed) return Promise.reject(new Error("Upload connection is closed."));
@@ -1219,7 +1243,7 @@ async function readSyncStatus(sync, timeoutMs) {
 async function statFileAdb(adbClient, remotePath) {
   const sync = await openAdbSync(adbClient, 15000);
   try {
-    await sync.write(syncRequest("STAT", remotePath));
+    await sync.send(syncRequest("STAT", remotePath));
     const reply = await sync.read(16, 15000);
     if (reply.toString("ascii", 0, 4) !== "STAT") throw new Error("Unexpected STAT reply from TV.");
     const mode = reply.readUInt32LE(4);
@@ -1234,35 +1258,49 @@ async function statFileAdb(adbClient, remotePath) {
 async function pushFileAdb(adbClient, remotePath, data, onProgress = () => {}) {
   const sync = await openAdbSync(adbClient, 30000);
   try {
-    // Build the sync byte stream: SEND header, DATA records (<=64 KB each), DONE.
-    const parts = [syncRequest("SEND", `${remotePath},33261`)];
-    for (let offset = 0; offset < data.length; offset += 65536) {
-      const chunk = data.subarray(offset, offset + 65536);
+    // One sync record per WRTE, each at most 4 KB (the layout the original working uploader used).
+    const packetSize = sync.maxPayload();
+    const records = [syncRequest("SEND", `${remotePath},33261`)];
+    for (let offset = 0; offset < data.length; offset += packetSize - 8) {
+      const chunk = data.subarray(offset, offset + packetSize - 8);
       const header = Buffer.alloc(8);
       header.write("DATA", 0);
       header.writeUInt32LE(chunk.length, 4);
-      parts.push(header, chunk);
+      records.push(Buffer.concat([header, chunk]));
     }
     const done = Buffer.alloc(8);
     done.write("DONE", 0);
     done.writeUInt32LE(Math.floor(Date.now() / 1000), 4);
-    parts.push(done);
-    const payload = Buffer.concat(parts);
+    records.push(done);
 
-    const packetSize = sync.maxPayload();
+    // A few packets in flight, paced by the TV's acknowledgements. Some Tizen builds don't
+    // acknowledge sync writes one by one; if none arrive, keep sending (as the original uploader
+    // did) and let the final OKAY plus the size check on the TV decide.
+    const WINDOW = 16;
+    let sent = 0;
+    let ackMode = true;
+    let lastProgress = Date.now();
     let nextReport = 10;
-    for (let offset = 0; offset < payload.length; offset += packetSize) {
-      const packet = payload.subarray(offset, offset + packetSize);
-      await sync.write(packet);
-      const sent = Math.min(data.length, offset + packet.length);
+    for (let index = 0; index < records.length; index += 1) {
+      if (ackMode) {
+        const waitStarted = Date.now();
+        while (index - sync.acks >= WINDOW) {
+          if (sync.acks === 0 && Date.now() - waitStarted > 6000) { ackMode = false; break; }
+          if (Date.now() - lastProgress > 30000) throw new Error("TV stopped acknowledging the upload (no reply in 30s).");
+          await new Promise((resolveTick) => setTimeout(resolveTick, 5));
+        }
+      }
+      await sync.send(records[index]);
+      if (sync.acks) lastProgress = Date.now();
+      if (index > 0 && index < records.length - 1) sent += records[index].length - 8;
       const percent = Math.floor((sent / Math.max(1, data.length)) * 100);
       if (percent >= nextReport) {
         onProgress(Math.min(100, percent - (percent % 10)), sent, data.length);
         nextReport = percent - (percent % 10) + 10;
       }
     }
-    // The TV answers once the file is fully written (or with FAIL and a reason).
-    await readSyncStatus(sync, 120000);
+    // The TV answers once the whole file is written (or with FAIL and a reason).
+    await readSyncStatus(sync, 180000);
   } finally {
     await sync.quit();
   }
@@ -1288,8 +1326,15 @@ async function pushSamsungFile(event, transport, localPath, remotePath) {
       } catch (error) {
         lastError = error;
         if (attempt < 3) {
-          emit(event, { type: "info", text: `Upload attempt ${attempt} failed (${error?.message || error}); retrying in 3s.` });
+          emit(event, { type: "info", text: `Upload attempt ${attempt} failed (${error?.message || error}); reconnecting to the TV and retrying.` });
+          // A stalled sync stream can leave this connection unusable, so start a new one.
+          try { transport.adbClient?._stream?.destroy(); } catch {}
           await new Promise((resolveDelay) => setTimeout(resolveDelay, 3000));
+          const fresh = await connectSamsungTransport(event, transport.target).catch((reconnectError) => {
+            emit(event, { type: "error", text: `Reconnect failed: ${reconnectError?.message || reconnectError}` });
+            return null;
+          });
+          if (fresh?.type === "adb") transport.adbClient = fresh.adbClient;
         }
       }
     }
