@@ -8,6 +8,7 @@ Phone app that sets up TVs and streaming boxes from Android: installs the best N
 | LG (webOS, Developer Mode) | Nuvio Legacy IPK | TV Home (generated per TV) | Settings checklist, Dev Mode kept alive |
 | NVIDIA Shield, Sony, onn, other Android/Google TV | Official or Legacy lite | Horizon Home or CleanYourTV launcher | Tested per-model lists + guards, optional NextDNS |
 | Fire TV | Official or Legacy lite | Locked by Amazon | Tested per-model lists + guards |
+| Older Samsung (Orsay, 2011-2014) | Nuvio Lite widget + community Plex, via User App Sync | n/a | n/a |
 
 ## Layout
 
@@ -18,6 +19,8 @@ Phone app that sets up TVs and streaming boxes from Android: installs the best N
   - `src/data/lists.json` generated from CleanYourTV by `scripts/gen_lists.py`.
   - `ui/index.html` the interface.
 - `base/` the Android shell APK (WebView + nodejs-mobile). CI renames it, swaps in `nodejs-project/` and signs it.
+- `nodejs-project/orsay/nuvio_lite/` Nuvio Lite, the ES5 Orsay widget. `src/platforms/orsay.js` builds it, serves User App Sync and relays HTTPS for the TV.
+- `orsay/` Orsay Relay (Cloudflare Worker, always-on relay) and Orsay Bridge (PC fallback for the port-80 sync).
 - `tests/` mock Android TV (real ADB framing and RSA auth), mock LG TV (SSH/SFTP), end-to-end tests.
 
 ## Releasing

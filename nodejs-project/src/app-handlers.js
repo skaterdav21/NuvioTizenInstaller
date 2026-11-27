@@ -12,6 +12,7 @@ const lg = require("./platforms/lg");
 const samsung = require("./platforms/samsung");
 const yearInfo = require("./platforms/samsung-year");
 const debloat = require("./platforms/debloat");
+const orsay = require("./platforms/orsay");
 
 const APP_VERSION = (() => {
   try { return fs.readFileSync(path.join(__dirname, "..", "VERSION"), "utf8").trim(); } catch { return "dev"; }
@@ -38,6 +39,7 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   android.init(userDataDir);
   samsung.init(handlers);
   jobs.setBroadcaster(broadcast);
+  orsay.init({ broadcast, store });
 
   const startJob = (title, steps, worker) => {
     const job = jobs.createJob(title, steps);
@@ -103,6 +105,24 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   handlers.set("job:cancel", async (_event, id) => { jobs.cancelJob(id); return true; });
 
   handlers.set("lg:extendAll", async () => lg.extendAll());
+
+  // Older Samsung (Orsay, 2011-2014): Nuvio Lite + Plex through User App Sync, and the TV's HTTPS relay.
+  handlers.set("orsay:config", async () => orsay.getConfig());
+  handlers.set("orsay:setConfig", async (_event, patch) => orsay.setConfig(patch || {}));
+  handlers.set("orsay:setPlexZip", async (_event, zipPath) => {
+    if (!zipPath) return orsay.setConfig({ plexZip: "" });
+    const uploads = path.join(userDataDir, "uploads");
+    const resolved = path.resolve(String(zipPath));
+    if (!resolved.startsWith(uploads + path.sep)) throw new Error("Invalid file.");
+    await orsay.checkWidgetZip(resolved);
+    const keep = path.join(userDataDir, "tvsetup", "orsay-plex.zip");
+    await fs.promises.mkdir(path.dirname(keep), { recursive: true });
+    await fs.promises.copyFile(resolved, keep);
+    return orsay.setConfig({ plexZip: keep });
+  });
+  handlers.set("orsay:start", async (_event, request = {}) => orsay.start(request));
+  handlers.set("orsay:stop", async () => { await orsay.stop(); return orsay.status(); });
+  handlers.set("orsay:status", async () => orsay.status());
 
   // Prepare ahead: download everything the saved TVs (or all platforms) need, so setup at the
   // TV only uploads and installs. Samsung also gets its package pre-signed (installer:prefetch).

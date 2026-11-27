@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>Nuvio Lite</title>
+<script type="text/javascript" src="$MANAGER_WIDGET/Common/API/Widget.js"></script>
+<script type="text/javascript" src="$MANAGER_WIDGET/Common/API/TVKeyValue.js"></script>
+<script type="text/javascript" src="$MANAGER_WIDGET/Common/API/Plugin.js"></script>
+<script type="text/javascript" src="config.js"></script>
+<script type="text/javascript" src="app.js"></script>
+<link rel="stylesheet" type="text/css" href="style.css">
+</head>
+<body onload="App.init();">
+<object id="pluginPlayer" border="0" classid="clsid:SAMSUNG-INFOLINK-PLAYER" style="position:absolute;left:0;top:0;width:1280px;height:720px;"></object>
+<object id="pluginTVMW" border="0" classid="clsid:SAMSUNG-INFOLINK-TVMW" style="position:absolute;left:0;top:0;width:0;height:0;"></object>
+<a href="javascript:void(0);" id="anchor" onkeydown="App.keyDown();"></a>
+
+<div id="ui">
+  <div id="header"><span id="logo">NUVIO</span><span id="lite">lite</span><span id="crumb"></span></div>
+
+  <div id="home" class="screen"></div>
+
+  <div id="detail" class="screen hidden">
+    <div id="dBackdrop"></div>
+    <div id="dInfo">
+      <div id="dTitle"></div>
+      <div id="dMeta"></div>
+      <div id="dDesc"></div>
+    </div>
+    <div id="dList"></div>
+  </div>
+
+  <div id="search" class="screen hidden">
+    <div id="sQuery"></div>
+    <div id="sKeys"></div>
+    <div id="sHint">OK: type &nbsp; RED: delete &nbsp; GREEN: search movies &nbsp; YELLOW: search series</div>
+  </div>
+
+  <div id="footer">UP/DOWN/LEFT/RIGHT: move &nbsp; OK: select &nbsp; RETURN: back &nbsp; BLUE: search</div>
+  <div id="toast" class="hidden"></div>
+  <div id="spinner" class="hidden">Loading...</div>
+</div>
+
+<div id="osd" class="hidden">
+  <div id="osdTitle"></div>
+  <div id="osdBar"><div id="osdFill"></div></div>
+  <div id="osdTime"></div>
+  <div id="osdHint">PLAY/PAUSE &nbsp; FF/REW: 30s &nbsp; LEFT/RIGHT: 10s &nbsp; STOP/RETURN: exit</div>
+</div>
+</body>
+</html>

@@ -56,6 +56,8 @@ jobs:
           find nodejs-project/src -name '*.js' -print0 | xargs -0 -n1 node --check
           sed -n '/<script>/,/<\/script>/p' nodejs-project/ui/index.html | sed '1d;$d' > /tmp/ui.js
           node --check /tmp/ui.js
+          node --check nodejs-project/orsay/nuvio_lite/app.js
+          node --input-type=module --check < orsay/relay-worker.js
 
       - name: Tests (mock Android TV, LG TV, ADB)
         run: |
@@ -66,6 +68,7 @@ jobs:
           node tests/test-samsung-push.js
           node tests/test-samsung-year.js
           node tests/test-android-fire.js
+          node tests/test-orsay.js
 
       - name: Prepare signing key
         env:

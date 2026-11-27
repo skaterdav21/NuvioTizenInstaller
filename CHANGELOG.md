@@ -1,3 +1,10 @@
+## 1.8.0
+
+- **2011 to 2014 Samsung (Orsay): apps on the TV itself.** The Older Samsung screen now has "Nuvio Lite + Plex" for these sets. **Start sync** builds **Nuvio Lite**, a light Nuvio-style app made for Orsay (Netflix-style rows from Cinemeta, seasons and episodes, search with an on-screen keyboard, streams from your debrid addons, played by the TV's own player with 1080p x264 sources sorted first), adds the community **Plex for Samsung** widget if you give it the zip, and serves both to the TV's User App Sync. Progress shows as the TV connects and installs each app, and the TV steps fill in the phone's IP.
+- The TV only syncs from port 80. The phone listens there when Android allows it (Android 13 and newer after Google's 2026 Play System Update) and says so if not; **Orsay Bridge** (`orsay/orsay_bridge.py`, Windows GUI) does the one-time sync from a PC instead.
+- **TV relay.** 2014 TVs can't open modern HTTPS, so Nuvio Lite's addon, poster and video requests go through a relay: this phone (keep the screen open; it stays on), or **Orsay Relay**, a Cloudflare Worker (`orsay/relay-worker.js`) that keeps working with the phone away. Video can go through the relay, or straight to debrid with the relay only resolving the link. Relay requests need a per-phone key.
+- New test: widget build, sync list, Plex zip check, relay key, proxy, ranged video through redirects, and link resolving.
+
 ## 1.7.0
 
 - **Fire TV: full setup.** Fire TV Sticks, Cubes and Fire TV sets (Fire OS 7 and 8) now get the clean home screen too: Fire OS won't hand Home to another app, so the clean screen answers the Home button and covers Amazon's home whenever it shows (Amazon's stays installed underneath; it can flash for a moment). Nuvio Legacy (lite) is picked for 2 GB sticks, in the 32-bit build Fire OS uses. The debloat uses CleanYourTV's tested Fire TV lists and never touches Amazon's home, Alexa's voice UI, remote pairing, the keyboard or Settings. Undo removes it all. Fire OS 6 gets Nuvio and the clean-up but not the home screen.

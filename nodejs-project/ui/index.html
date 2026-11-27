@@ -72,6 +72,9 @@
   label.field { display: block; margin: 0 0 14px; }
   label.field > span { display: block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
   input[type=text], input[type=password], select { width: 100%; background: var(--key); border: 1px solid var(--edge); border-radius: 12px; padding: 13px 14px; font-size: 17px; }
+  textarea.field-ta { width: 100%; min-height: 84px; background: var(--key); border: 1px solid var(--edge); border-radius: 12px; padding: 12px 14px; font: 14px/1.4 ui-monospace, monospace; color: var(--text); resize: vertical; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; margin: 8px 0 4px; }
+  .kv b { font-stretch: 118%; }
   input.code { font-stretch: 125%; letter-spacing: 0.18em; font-weight: 700; text-transform: uppercase; }
 
   /* Choice rows (radio / toggle) */
@@ -655,7 +658,10 @@ function viewOldSamsung() {
   document.querySelectorAll("[data-year]").forEach((el) => el.onclick = () => decode({ year: Number(el.dataset.year) }));
   if (!old.age && !old.tried && (old.model || old.year)) { old.tried = true; decode({ year: old.year || 0 }); }
   bindOldSamsung();
-  if (old.age?.year && !old.age.supported) setDock("Set up a stick", "Fire TV Stick or onn box for this TV", () => go("pick"), { pulse: true });
+  if (old.age?.generation === "orsay" && state.orsay?.cfg) {
+    const on = state.orsay.st?.running;
+    setDock(on ? "Stop" : "Start sync", on ? "Stops the sync and the phone relay" : "Nuvio Lite + Plex for this TV", () => (on ? $("or-stop") : $("or-start"))?.click(), { pulse: !on });
+  } else if (old.age?.year && !old.age.supported) setDock("Set up a stick", "Fire TV Stick or onn box for this TV", () => go("pick"), { pulse: true });
   else setDock("Check", "Works out the TV's year", () => decode({ model: $("old-model").value.trim(), year: 0 }));
 }
 
@@ -669,18 +675,125 @@ function oldSamsungBody(old, age) {
     : "Developer mode works on it, but Nuvio needs Tizen 4 (2018) or newer. The Nuvio Legacy developer has a Tizen 3 test build that isn't released, because it doesn't run well yet.";
   const series = gen === "orsay" ? ({ 2011: "D", 2012: "E", 2013: "F", 2014: "H" }[age.year] || "F") : "";
   return `<div class="verdict warn"><b>${age.year}${age.sure ? "" : "?"} Samsung, ${esc(age.os)}: Nuvio can't run on it</b><span class="small muted">${why}</span></div>
-    <h3>Do this instead: a streaming stick</h3>
+    ${gen === "orsay" ? orsayPanel(series) : ""}
+    <h3>${gen === "orsay" ? "Or: a streaming stick (the full Nuvio app)" : "Do this instead: a streaming stick"}</h3>
     <p class="small muted" style="margin-top:-4px">Plug one into a free HDMI port. This app then sets it up like any other TV: Nuvio, the clean home screen and the ad clean-up.</p>
     <div class="group">${STICKS.map(([t, d]) => `<div class="opt"><span><span class="t">${esc(t)}</span><span class="d">${esc(d)}</span></span></div>`).join("")}</div>
     <h3>On the Samsung</h3>
     <ol class="howto">${(OLD_SAMSUNG_TV[gen] || OLD_SAMSUNG_TV.orsay).map((t) => `<li><span>${t}</span></li>`).join("")}</ol>
     <details class="help"><summary>Developer mode on this TV, for other apps</summary><div class="inner">
       ${gen === "orsay" ? `<ol class="howto">${ORSAY[series].steps.map((x) => `<li><span>${x}</span></li>`).join("")}</ol>
-        <p class="small muted">These are the steps for ${esc(ORSAY[series].label)} sets. User App Sync loads apps from a computer on the same Wi-Fi that serves <b>widgetlist.xml</b> on port 80, which phones can't do. If the <b>develop</b> login fails, Samsung's old login servers may be refusing it; a factory reset (Support → Self Diagnosis → Reset) before updating the firmware sometimes helps.</p>`
+        <p class="small muted">These are the steps for ${esc(ORSAY[series].label)} sets. User App Sync loads apps from a device on the same Wi-Fi that serves <b>widgetlist.xml</b> on port 80. For Nuvio Lite and Plex, use <b>Start sync</b> above: this phone does it when Android allows port 80, otherwise a PC with Orsay Bridge does. If the <b>develop</b> login fails, Samsung's old login servers may be refusing it; a factory reset (Support → Self Diagnosis → Reset) before updating the firmware sometimes helps.</p>`
       : `<ol class="howto">${GUIDES.samsung.steps.slice(0, 3).map((x) => `<li><span>${x}</span></li>`).join("")}</ol><p class="small muted">The menus match newer Samsungs. It's only useful for apps built for Tizen ${esc((age.os.match(/[\d.]+/) || [""])[0])}.</p>`}
     </div></details>`;
 }
-function bindOldSamsung() {}
+// ---- Orsay apps: Nuvio Lite + Plex through User App Sync, with the phone (or a Worker) as the TV's HTTPS relay.
+function orsayPanel(series) {
+  const o = state.orsay || (state.orsay = { cfg: null, st: null, ev: null });
+  if (!o.cfg) { invoke("orsay:config").then((c) => { o.cfg = c; return invoke("orsay:status"); }).then((st) => { o.st = st; if (state.view === "oldsamsung") viewOldSamsung(); }).catch((e) => toast(e.message, 5000)); return `<p class="small muted">Loading…</p>`; }
+  const c = o.cfg;
+  const running = o.st?.running;
+  return `<h3>Apps on the TV itself: Nuvio Lite + Plex</h3>
+    <p class="small muted" style="margin-top:-4px"><b>Nuvio Lite</b> is a light Nuvio-style app made for this TV: Netflix-style rows, seasons and episodes, search, and streams from your addons, played by the TV's own player (1080p x264 sources first; this TV can't play HEVC or 4K). <b>Plex</b> is the community Plex for Samsung build, if you add its zip.</p>
+    <label class="field"><span>Stream addon links (one per line, your debrid-configured Torrentio / Comet / TorBox manifest links)</span><textarea class="field-ta" id="or-addons" autocapitalize="off" spellcheck="false" placeholder="https://torrentio.strem.fun/…/manifest.json">${esc(c.streamAddons.join("\n"))}</textarea></label>
+    <div class="group"><div class="head"><b>Relay</b><span class="muted">The TV can't open modern HTTPS, so its requests go through this</span></div>
+      ${radio("or-relay", "phone", c.relayMode, "This phone", "Nothing to set up. Keep TV Setup open on this screen while watching (it keeps the screen on).", c.relayMode === "phone")}
+      ${radio("or-relay", "worker", c.relayMode, "Orsay Relay on Cloudflare", "Always on, the phone can be anywhere. Menus and posters go through your Worker; video goes straight to debrid.")}
+    </div>
+    ${c.relayMode !== "phone" ? `<label class="field"><span>Relay link (plain http)</span><input type="text" id="or-relayurl" autocapitalize="off" autocomplete="off" placeholder="http://orsay-relay.you.workers.dev" value="${esc(c.relayUrl)}"></label>
+      <p class="small muted" style="margin-top:-6px">Relay key <code>${esc(c.key)}</code> <button class="chip" id="or-copykey">Copy</button><br>Deploy <code>orsay/relay-worker.js</code> from the app's repo and set this as its <b>RELAY_KEY</b> secret.</p>` : ""}
+    <div class="group"><div class="head"><b>Video</b></div>
+      ${radio("or-video", "proxy", c.streamMode, "Through the relay", "Most reliable on 2014 TVs. Phone relay only.", c.relayMode === "phone")}
+      ${radio("or-video", "http", c.streamMode, "Straight to debrid over http", "The relay finds the real link and the TV plays it directly. Use with the Cloudflare relay.", c.relayMode !== "phone")}
+      ${radio("or-video", "resolve", c.streamMode, "Straight to debrid over https", "Try if plain http links get refused.")}
+    </div>
+    <button class="key" id="or-plex"><span class="glyph">Px</span><span class="grow"><span class="title">${c.plexZip ? "Plex widget added" : "Add the Plex widget zip"}</span><span class="sub">${c.plexZip ? "Tap to replace, hold to remove" : "Orca's Plex for Samsung 2.013 (from the Plex forum)"}</span></span><span class="chev">›</span></button>
+    <p class="small muted">On your Plex server: Settings → Network → Secure connections <b>Preferred</b>, and untick <b>Disable weak TLS versions</b>, or this TV can't sign in.</p>
+    <div id="orsay-status">${orsayStatus(series)}</div>`;
+}
+
+function orsayStatus(series) {
+  const o = state.orsay || {};
+  const st = o.st;
+  if (!st?.running) return `<button class="key" id="or-start"><span class="glyph">▶</span><span class="grow"><span class="title">Start sync</span><span class="sub">Builds Nuvio Lite and waits for the TV</span></span><span class="chev">›</span></button>`;
+  const total = st.widgets.length || 1;
+  const done = Object.keys(st.stats.downloads || {}).length;
+  const pct = done >= total ? 100 : st.stats.widgetlist ? 20 + Math.round(70 * done / total) : 5;
+  const phase = done >= total ? "Synced. Exit Smart Hub and open it again: the apps are under My Apps."
+    : st.stats.widgetlist ? `TV ${esc(st.stats.lastTv)} connected, installing ${done} of ${total}…` : "Waiting for the TV to start User App Sync…";
+  const ip = st.syncIp;
+  const steps = (ORSAY[series] || ORSAY.H).steps.map((x) => x.replace(/the computer's IP/g, ip ? `<b>${esc(ip)}</b>` : "the computer's IP"));
+  return `<div class="verdict ${st.port80 ? "ok" : "warn"}"><b>${st.port80 ? `Ready. On the TV, use IP ${esc(ip)}` : "Android didn't allow port 80 on this phone"}</b>
+      <span class="small muted">${st.port80 ? "" : `The TV only syncs from port 80. Android opens it to apps after Google's 2026 Play System Update (Android 13 and newer). Update under Settings → Security → Google Play system update, or do the one-time sync from a PC with <b>Orsay Bridge</b> (in the app's GitHub repo, <code>orsay/</code>). The relay still runs here on port ${st.port}.`}</span>
+      <div class="kv"><span class="muted">Phone</span><b>${esc(st.ip)}:${st.port}</b><span class="muted">Apps</span><b>${st.widgets.map((w) => `${esc(w.title)} (${w.kb} KB)`).join(", ")}</b><span class="muted">Relay</span><b>${st.stats.proxy} requests, ${st.stats.streams} streams</b></div>
+      <div class="bar"><i style="width:${pct}%"></i></div><span class="small">${phase}</span>
+      ${st.stats.lastError ? `<span class="small muted">Last relay error: ${esc(st.stats.lastError)}</span>` : ""}
+    </div>
+    ${st.port80 ? `<ol class="howto">${steps.map((x) => `<li><span>${x}</span></li>`).join("")}</ol>` : ""}
+    <button class="key" id="or-stop"><span class="glyph">■</span><span class="grow"><span class="title">Stop</span><span class="sub">${o.cfg?.relayMode === "phone" ? "Nuvio Lite stops working until you start again" : "The Cloudflare relay keeps Nuvio Lite working"}</span></span><span class="chev">›</span></button>`;
+}
+
+function orsayCollect() {
+  const c = state.orsay.cfg;
+  const pick = (n) => document.querySelector(`input[name="${n}"]:checked`)?.value;
+  return {
+    streamAddons: ($("or-addons")?.value || "").split(/\s+/).filter(Boolean),
+    relayMode: pick("or-relay") || c.relayMode,
+    relayUrl: $("or-relayurl") ? $("or-relayurl").value.trim() : c.relayUrl,
+    streamMode: pick("or-video") || c.streamMode
+  };
+}
+
+async function orsaySave(rerender) {
+  try { state.orsay.cfg = await invoke("orsay:setConfig", orsayCollect()); } catch (e) { toast(e.message, 5000); }
+  if (rerender) viewOldSamsung();
+}
+
+function bindOldSamsung() {
+  const o = state.orsay;
+  if (!o?.cfg || !$("or-addons")) return;
+  $("or-addons").addEventListener("change", () => orsaySave(false));
+  $("or-relayurl")?.addEventListener("change", () => orsaySave(false));
+  $("or-copykey")?.addEventListener("click", () => { bridge?.copyText(o.cfg.key); toast("Copied"); });
+  document.querySelectorAll('input[name="or-relay"]').forEach((el) => el.addEventListener("change", () => {
+    const next = el.value === "phone" ? "proxy" : "http";
+    const video = document.querySelector(`input[name="or-video"][value="${next}"]`); if (video) video.checked = true;
+    orsaySave(true);
+  }));
+  document.querySelectorAll('input[name="or-video"]').forEach((el) => el.addEventListener("change", () => orsaySave(false)));
+  const plex = $("or-plex");
+  let held = null;
+  plex.addEventListener("touchstart", () => { held = setTimeout(async () => { held = "fired"; o.cfg = await invoke("orsay:setPlexZip", ""); toast("Plex removed"); viewOldSamsung(); }, 700); }, { passive: true });
+  plex.addEventListener("touchend", () => { if (held !== "fired") clearTimeout(held); });
+  plex.addEventListener("click", async () => {
+    if (held === "fired") { held = null; return; }
+    const file = await pickFile(".zip,application/zip"); if (!file) return;
+    try { const p = await upload(file); o.cfg = await invoke("orsay:setPlexZip", p); toast("Plex widget added"); viewOldSamsung(); } catch (e) { toast(e.message, 5000); }
+  });
+  bindOrsayStatus();
+}
+
+function bindOrsayStatus() {
+  const o = state.orsay;
+  $("or-start")?.addEventListener("click", async () => {
+    await orsaySave(false);
+    const c = o.cfg;
+    if (!c.streamAddons.length && !confirm("No stream addons yet. Nuvio Lite will browse but find nothing to play. Start anyway?")) return;
+    if (c.relayMode !== "phone" && !/^https?:\/\//.test(c.relayUrl)) { toast("Add the relay link first.", 4000); return; }
+    try { o.st = await invoke("orsay:start", { ip: phoneIp() }); keepAwake(true); viewOldSamsung(); } catch (e) { toast(e.message, 6000); }
+  });
+  $("or-stop")?.addEventListener("click", async () => { o.st = await invoke("orsay:stop"); keepAwake(false); viewOldSamsung(); });
+}
+
+function orsayEvent(payload) {
+  const o = state.orsay; if (!o) return;
+  invoke("orsay:status").then((st) => {
+    o.st = st;
+    const box = $("orsay-status");
+    if (box && state.view === "oldsamsung") { box.innerHTML = orsayStatus(({ 2011: "D", 2012: "E", 2013: "F", 2014: "H" })[state.old?.age?.year] || "H"); bindOrsayStatus(); }
+    if (payload.kind === "download" && payload.done >= payload.total) toast("Synced. Reopen Smart Hub on the TV.", 5000);
+  }).catch(() => {});
+}
 
 // ---------------- Running ----------------
 async function startRun() {
@@ -761,6 +874,8 @@ function connectEvents() {
     } else if (channel === "scan:found") {
       if (!state.scan.found.some((f) => f.ip === payload.ip)) state.scan.found.push(payload);
       if (state.view === "home") viewHome();
+    } else if (channel === "orsay:event") {
+      orsayEvent(payload);
     } else if (channel === "device:authPrompt") {
       $("dock-hint").innerHTML = "<b>Look at the TV</b><span>Choose Allow and tick Always allow</span>";
       toast("Look at the TV: choose Allow on “Allow USB debugging?”", 6000);

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget>
+	<previewjs>PreviewNuvioLite</previewjs>
+	<cpname>Dave</cpname>
+	<cpauthjs></cpauthjs>
+	<ver>1.0.0</ver>
+	<mgrver>4.000</mgrver>
+	<emp></emp>
+	<type>user</type>
+	<fullwidget>y</fullwidget>
+	<srcctl>y</srcctl>
+	<ticker>n</ticker>
+	<childlock>n</childlock>
+	<videomute>n</videomute>
+	<dcont>y</dcont>
+	<audiomute>n</audiomute>
+	<movie>y</movie>
+	<network>y</network>
+	<category>VOD</category>
+	<widgetname>Nuvio Lite</widgetname>
+	<description>Lightweight Nuvio-style player for 2011-2014 Samsung Orsay TVs</description>
+	<width>1280</width>
+	<height>720</height>
+	<icon>icon_106x87.png</icon>
+	<ThumbIcon>icon_115x95.png</ThumbIcon>
+	<BigThumbIcon>icon_115x95.png</BigThumbIcon>
+	<ListIcon>icon_85x70.png</ListIcon>
+	<BigListIcon>icon_85x70.png</BigListIcon>
+	<author>
+		<name>Dave</name>
+		<email></email>
+		<link></link>
+		<organization>TV Setup</organization>
+	</author>
+</widget>

@@ -1,0 +1,46 @@
+body { margin:0; padding:0; width:1280px; height:720px; background:#141414; color:#fff; font-family:Arial, sans-serif; overflow:hidden; }
+body.playing { background:transparent; }
+.hidden { display:none !important; }
+#anchor { position:absolute; left:0; top:0; width:1px; height:1px; }
+#ui { position:absolute; left:0; top:0; width:1280px; height:720px; }
+#header { position:absolute; left:50px; top:20px; height:50px; }
+#logo { color:#e50914; font-size:36px; font-weight:bold; letter-spacing:2px; }
+#lite { color:#aaa; font-size:20px; margin-left:6px; }
+#crumb { color:#ccc; font-size:20px; margin-left:30px; }
+.screen { position:absolute; left:0; top:80px; width:1280px; height:600px; overflow:hidden; }
+#footer { position:absolute; left:50px; top:690px; font-size:15px; color:#777; }
+
+.row { position:absolute; left:50px; width:1230px; height:290px; }
+.rowTitle { font-size:22px; color:#e5e5e5; height:32px; }
+.rowTrack { position:absolute; top:34px; left:0; height:250px; width:20000px; }
+.card { position:absolute; top:6px; width:160px; height:236px; background:#222; border:3px solid transparent; }
+.card img { width:160px; height:236px; }
+.card .ct { position:absolute; left:6px; top:90px; width:148px; font-size:16px; color:#bbb; text-align:center; }
+.card.focus { border-color:#fff; }
+.row.dim .rowTitle { color:#777; }
+
+#dBackdrop { position:absolute; left:0; top:-80px; width:1280px; height:720px; background-size:cover; opacity:0.25; }
+#dInfo { position:absolute; left:50px; top:10px; width:1180px; }
+#dTitle { font-size:40px; font-weight:bold; }
+#dMeta { font-size:18px; color:#46d369; margin-top:8px; }
+#dDesc { font-size:18px; color:#ccc; margin-top:10px; height:78px; overflow:hidden; line-height:26px; }
+#dList { position:absolute; left:50px; top:180px; width:1180px; height:410px; overflow:hidden; }
+.item { height:44px; line-height:44px; font-size:20px; padding-left:16px; color:#ddd; background:rgba(255,255,255,0.05); margin-bottom:4px; overflow:hidden; white-space:nowrap; }
+.item.focus { background:#e50914; color:#fff; }
+.item.head { background:none; color:#888; font-size:16px; }
+
+#sQuery { position:absolute; left:50px; top:20px; width:1180px; height:60px; line-height:60px; font-size:34px; background:#222; padding-left:20px; }
+#sKeys { position:absolute; left:50px; top:110px; width:1180px; }
+.key { display:inline-block; width:76px; height:60px; line-height:60px; text-align:center; font-size:26px; background:#2a2a2a; margin:0 6px 8px 0; }
+.key.focus { background:#e50914; }
+#sHint { position:absolute; left:50px; top:470px; font-size:18px; color:#888; }
+
+#toast { position:absolute; left:340px; top:600px; width:600px; padding:14px; text-align:center; background:rgba(0,0,0,0.85); border:1px solid #444; font-size:20px; }
+#spinner { position:absolute; left:540px; top:330px; width:200px; text-align:center; font-size:24px; background:rgba(0,0,0,0.7); padding:14px; }
+
+#osd { position:absolute; left:0; top:560px; width:1280px; height:160px; background:rgba(0,0,0,0.75); }
+#osdTitle { position:absolute; left:50px; top:14px; font-size:24px; }
+#osdBar { position:absolute; left:50px; top:60px; width:1180px; height:8px; background:#555; }
+#osdFill { width:0; height:8px; background:#e50914; }
+#osdTime { position:absolute; left:50px; top:80px; font-size:20px; color:#ccc; }
+#osdHint { position:absolute; left:50px; top:116px; font-size:15px; color:#888; }
