@@ -34,7 +34,9 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/" || url.pathname === "/status") return Response.json({ app: "Orsay Relay", ok: true });
     if (!["/proxy", "/img", "/stream"].includes(url.pathname)) return new Response("not found", { status: 404 });
-    if (env.RELAY_KEY && url.searchParams.get("k") !== env.RELAY_KEY) return new Response("bad key", { status: 403 });
+    // No key set yet: refuse rather than run as an open proxy.
+    if (!env.RELAY_KEY) return new Response("RELAY_KEY not set", { status: 503 });
+    if (url.searchParams.get("k") !== env.RELAY_KEY) return new Response("bad key", { status: 403 });
     const u = target(url.searchParams.get("u"));
     if (!u) return new Response("bad url", { status: 400 });
 
