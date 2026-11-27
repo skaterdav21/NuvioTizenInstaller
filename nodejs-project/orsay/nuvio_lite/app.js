@@ -15,29 +15,50 @@ if (!tvKey) {
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function trimSlash(u) { return u.replace(/\/manifest\.json$/, '').replace(/\/+$/, ''); }
-function viaBridge(u, path, extra) {
-  return CFG.relay + (path || '/proxy') + '?u=' + encodeURIComponent(u) + (CFG.key ? '&k=' + encodeURIComponent(CFG.key) : '') + (extra || '');
+function viaBridge(u, path, extra, base) {
+  return (base || CFG.relay) + (path || '/proxy') + '?u=' + encodeURIComponent(u) + (CFG.key ? '&k=' + encodeURIComponent(CFG.key) : '') + (extra || '');
 }
 function fmt(ms) {
   var s = Math.floor((ms || 0) / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); s = s % 60;
   return (h ? h + ':' : '') + (m < 10 && h ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
 }
 
+/* Torrentio and similar scrapers refuse cloud servers (the Cloudflare relay gets 429), so stream
+   lookups and link resolving try the phone relay first (home internet) and fall back to CFG.relay.
+   phoneOk remembers the last result for a minute so a closed phone app costs one short wait. */
 var Net = {
-  getJSON: function (url, ok, fail) {
+  phoneOk: null, phoneAt: 0,
+  usePhone: function () {
+    if (!CFG.phoneRelay || CFG.phoneRelay === CFG.relay) return false;
+    return Net.phoneOk !== false || new Date().getTime() - Net.phoneAt > 60000;
+  },
+  get: function (full, ms, ok, fail) {
     var x = new XMLHttpRequest(), done = false;
-    var t = setTimeout(function () { if (!done) { done = true; try { x.abort(); } catch (e) {} if (fail) fail('timeout'); } }, 20000);
+    var t = setTimeout(function () { if (!done) { done = true; try { x.abort(); } catch (e) {} if (fail) fail('timeout', 0); } }, ms);
     x.onreadystatechange = function () {
       if (x.readyState !== 4 || done) return;
       done = true; clearTimeout(t);
       if (x.status >= 200 && x.status < 300) {
         var j = null;
-        try { j = JSON.parse(x.responseText); } catch (e) { if (fail) fail('bad json'); return; }
+        try { j = JSON.parse(x.responseText); } catch (e) { if (fail) fail('bad json', x.status); return; }
         ok(j);
-      } else if (fail) fail('HTTP ' + x.status);
+      } else if (fail) fail('HTTP ' + x.status, x.status);
     };
-    x.open('GET', viaBridge(url), true);
+    x.open('GET', full, true);
     x.send(null);
+  },
+  getJSON: function (url, ok, fail, phoneFirst) {
+    if (phoneFirst && Net.usePhone()) {
+      Net.get(viaBridge(url, '/proxy', '', CFG.phoneRelay), 6000, function (j) {
+        Net.phoneOk = true; Net.phoneAt = new Date().getTime(); ok(j);
+      }, function (err, status) {
+        if (status) { Net.phoneOk = true; Net.phoneAt = new Date().getTime(); if (fail) fail(err); return; }
+        Net.phoneOk = false; Net.phoneAt = new Date().getTime();
+        Net.get(viaBridge(url), 20000, ok, fail);
+      });
+      return;
+    }
+    Net.get(viaBridge(url), 20000, ok, fail);
   }
 };
 
@@ -179,7 +200,7 @@ var Detail = {
         var s = j.streams || [];
         for (var k = 0; k < s.length; k++) if (s[k].url) all.push(s[k]);
         if (--pending === 0) Detail.gotStreams(all);
-      }, function () { if (--pending === 0) Detail.gotStreams(all); });
+      }, function () { if (--pending === 0) Detail.gotStreams(all); }, true);
     })(CFG.streamAddons[i]);
   },
   score: function (s) {
@@ -195,7 +216,10 @@ var Detail = {
     return sc;
   },
   gotStreams: function (all) {
-    if (!all.length) { Detail.list = [{ label: 'No playable streams found', head: true }]; Detail.paint(); return; }
+    if (!all.length) {
+      var why = (CFG.phoneRelay && Net.phoneOk === false) ? 'No streams. Open TV Setup on your phone (Older Samsung, Start sync) so it can look them up, then try again.' : 'No playable streams found';
+      Detail.list = [{ label: why, head: true }]; Detail.paint(); return;
+    }
     for (var i = 0; i < all.length; i++) all[i]._sc = Detail.score(all[i]);
     all.sort(function (a, b) { return b._sc - a._sc; });
     Detail.list = [{ label: all.length + ' streams, best match for this TV first', head: true }];
@@ -289,7 +313,11 @@ var Player = {
      sends the TV to the plain-http debrid link; resolve = same but keeps https; direct = no relay. */
   url: function (u) {
     var hls = /\.m3u8(\?|$)/i.test(u);
-    if (CFG.streamMode && CFG.streamMode !== 'direct') u = viaBridge(u, '/stream', '&mode=' + CFG.streamMode);
+    if (CFG.streamMode && CFG.streamMode !== 'direct') {
+      /* Resolve through the phone when it answered recently: the addon's resolve link needs a home IP. */
+      if (Net.usePhone() && Net.phoneOk) u = viaBridge(u, '/stream', '&mode=' + CFG.streamMode, CFG.phoneRelay);
+      else u = viaBridge(u, '/stream', '&mode=' + CFG.streamMode);
+    }
     if (hls) u += '|COMPONENT=HLS';
     return u;
   },

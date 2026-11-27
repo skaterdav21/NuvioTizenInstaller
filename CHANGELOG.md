@@ -1,3 +1,8 @@
+## 1.8.1
+
+- **Nuvio Lite: streams with the Cloudflare relay.** Torrentio (and most public scrapers) refuse requests from Cloudflare, so with the Orsay Relay every title showed "No playable streams found". Nuvio Lite now looks up streams and resolves the chosen link through this phone first (your home internet), and uses the Worker for everything else. Menus and posters work with the phone away; to find streams, have TV Setup open on the Older Samsung screen with the sync running. If the phone can't be reached, Nuvio Lite says so instead of showing an empty list. Run **Start sync** once so the TV gets the new Nuvio Lite (1.0.1).
+- Orsay Relay Worker refuses requests until its key is set, and logs only the upstream host and status (never addon paths, which can carry a debrid key).
+
 ## 1.8.0
 
 - **2011 to 2014 Samsung (Orsay): apps on the TV itself.** The Older Samsung screen now has "Nuvio Lite + Plex" for these sets. **Start sync** builds **Nuvio Lite**, a light Nuvio-style app made for Orsay (Netflix-style rows from Cinemeta, seasons and episodes, search with an on-screen keyboard, streams from your debrid addons, played by the TV's own player with 1080p x264 sources sorted first), adds the community **Plex for Samsung** widget if you give it the zip, and serves both to the TV's User App Sync. Progress shows as the TV connects and installs each app, and the TV steps fill in the phone's IP.

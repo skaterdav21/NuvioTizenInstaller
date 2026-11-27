@@ -67,7 +67,7 @@ function upstream() {
   const tv = await JSZip.loadAsync(zipBuf);
   for (const f of ["config.xml", "index.html", "app.js", "style.css", "config.js"]) assert.ok(tv.files[f], `widget has ${f}`);
   const tvCfg = JSON.parse((await tv.files["config.js"].async("string")).replace(/^var CFG = /, "").replace(/;\s*$/, ""));
-  assert.strictEqual(tvCfg.relay, B); assert.strictEqual(tvCfg.key, cfg.key); assert.strictEqual(tvCfg.streamMode, "proxy");
+  assert.strictEqual(tvCfg.relay, B); assert.strictEqual(tvCfg.phoneRelay, B, "phone relay always baked in"); assert.strictEqual(tvCfg.key, cfg.key); assert.strictEqual(tvCfg.streamMode, "proxy");
   await fetch(`${B}/Widget/Plex.zip`).then((r) => r.arrayBuffer());
   assert.ok(events.includes("widgetlist") && events.includes("download"));
   assert.strictEqual(Object.keys(orsay.status().stats.downloads).length, 2);
@@ -85,6 +85,13 @@ function upstream() {
   assert.strictEqual(redir.status, 302);
   assert.strictEqual(redir.headers.get("location"), `${U}/media.mp4`);
 
+  // Worker mode: menus go to the Worker, stream lookups keep the phone as first choice.
+  await orsay.setConfig({ relayMode: "worker", relayUrl: "https://r.example.workers.dev", streamMode: "http" });
+  const st2 = await orsay.start({ ip: "127.0.0.1", ports: [0] });
+  const B2 = `http://127.0.0.1:${st2.port}`;
+  const tv2 = await JSZip.loadAsync(Buffer.from(await (await fetch(`${B2}/Widget/NuvioLite.zip`)).arrayBuffer()));
+  const cfg2 = JSON.parse((await tv2.files["config.js"].async("string")).replace(/^var CFG = /, "").replace(/;\s*$/, ""));
+  assert.strictEqual(cfg2.relay, "http://r.example.workers.dev"); assert.strictEqual(cfg2.phoneRelay, B2); assert.strictEqual(cfg2.streamMode, "http");
   await orsay.stop();
   assert.strictEqual(orsay.status().running, false);
   up.close();

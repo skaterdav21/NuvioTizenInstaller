@@ -65,6 +65,8 @@ export default {
     const hit = await cache.match(cacheKey);
     if (hit) return hit;
     const up = await fetch(u.href, { headers: { "User-Agent": UA, Accept: "*/*" }, redirect: "follow", cf: { cacheTtl: ttl } });
+    // Host, status and the last path part only: addon paths can carry a debrid key.
+    console.log(JSON.stringify({ route: url.pathname, host: u.hostname, tail: u.pathname.split("/").slice(-2).join("/"), status: up.status }));
     const res = new Response(up.body, up);
     res.headers.set("Cache-Control", `public, max-age=${ttl}`);
     res.headers.set("Access-Control-Allow-Origin", "*");

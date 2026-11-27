@@ -698,7 +698,7 @@ function orsayPanel(series) {
     <label class="field"><span>Stream addon links (one per line, your debrid-configured Torrentio / Comet / TorBox manifest links)</span><textarea class="field-ta" id="or-addons" autocapitalize="off" spellcheck="false" placeholder="https://torrentio.strem.fun/…/manifest.json">${esc(c.streamAddons.join("\n"))}</textarea></label>
     <div class="group"><div class="head"><b>Relay</b><span class="muted">The TV can't open modern HTTPS, so its requests go through this</span></div>
       ${radio("or-relay", "phone", c.relayMode, "This phone", "Nothing to set up. Keep TV Setup open on this screen while watching (it keeps the screen on).", c.relayMode === "phone")}
-      ${radio("or-relay", "worker", c.relayMode, "Orsay Relay on Cloudflare", "Always on, the phone can be anywhere. Menus and posters go through your Worker; video goes straight to debrid.")}
+      ${radio("or-relay", "worker", c.relayMode, "Orsay Relay on Cloudflare", "Menus and posters always work. Torrentio blocks Cloudflare, so finding streams uses this phone: have TV Setup open on this screen when picking something. Video then plays straight from debrid.")}
     </div>
     ${c.relayMode !== "phone" ? `<label class="field"><span>Relay link (plain http)</span><input type="text" id="or-relayurl" autocapitalize="off" autocomplete="off" placeholder="http://orsay-relay.you.workers.dev" value="${esc(c.relayUrl)}"></label>
       <p class="small muted" style="margin-top:-6px">Relay key <code>${esc(c.key)}</code> <button class="chip" id="or-copykey">Copy</button><br>Deploy <code>orsay/relay-worker.js</code> from the app's repo and set this as its <b>RELAY_KEY</b> secret.</p>` : ""}
@@ -730,7 +730,7 @@ function orsayStatus(series) {
       ${st.stats.lastError ? `<span class="small muted">Last relay error: ${esc(st.stats.lastError)}</span>` : ""}
     </div>
     ${st.port80 ? `<ol class="howto">${steps.map((x) => `<li><span>${x}</span></li>`).join("")}</ol>` : ""}
-    <button class="key" id="or-stop"><span class="glyph">■</span><span class="grow"><span class="title">Stop</span><span class="sub">${o.cfg?.relayMode === "phone" ? "Nuvio Lite stops working until you start again" : "The Cloudflare relay keeps Nuvio Lite working"}</span></span><span class="chev">›</span></button>`;
+    <button class="key" id="or-stop"><span class="glyph">■</span><span class="grow"><span class="title">Stop</span><span class="sub">${o.cfg?.relayMode === "phone" ? "Nuvio Lite stops working until you start again" : "Menus keep working; finding streams needs this running"}</span></span><span class="chev">›</span></button>`;
 }
 
 function orsayCollect() {

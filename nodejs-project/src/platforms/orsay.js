@@ -100,7 +100,7 @@ function relayBase(cfg, ip, port) {
 }
 
 // ---------------------------------------------------------------- widgets
-async function buildNuvioLite(cfg, relay) {
+async function buildNuvioLite(cfg, relay, phoneRelay = relay) {
   const zip = new JSZip();
   for (const name of await fsp.readdir(WIDGET_DIR)) {
     if (name === "config.js") continue;
@@ -108,6 +108,7 @@ async function buildNuvioLite(cfg, relay) {
   }
   const tvConfig = {
     relay,
+    phoneRelay, // stream lookups try the phone first: Torrentio refuses cloud relays
     key: cfg.key,
     metaAddon: cfg.metaAddon,
     catalogs: cfg.catalogs,
@@ -134,9 +135,9 @@ async function checkWidgetZip(file) {
   return data;
 }
 
-async function widgetTable(cfg, relay) {
+async function widgetTable(cfg, relay, phoneRelay) {
   const table = {};
-  table.NuvioLite = { title: "Nuvio Lite", desc: "Nuvio-style player for Orsay", data: await buildNuvioLite(cfg, relay) };
+  table.NuvioLite = { title: "Nuvio Lite", desc: "Nuvio-style player for Orsay", data: await buildNuvioLite(cfg, relay, phoneRelay) };
   if (cfg.plexZip && fs.existsSync(cfg.plexZip)) {
     table.Plex = { title: "Plex", desc: "Community Plex for Samsung", data: await checkWidgetZip(cfg.plexZip) };
   }
@@ -316,7 +317,7 @@ async function start({ ip: ipHint, ports } = {}) {
   serving.startedAt = Date.now();
   stats.widgetlist = 0; stats.downloads = {}; stats.lastError = "";
   try {
-    serving.widgets = await widgetTable(cfg, relayBase(cfg, ip, serving.port));
+    serving.widgets = await widgetTable(cfg, relayBase(cfg, ip, serving.port), relayBase({ relayMode: "phone" }, ip, serving.port));
   } catch (error) { await stop(); throw error; }
   emit("started", { port: serving.port, ip });
   return status();
