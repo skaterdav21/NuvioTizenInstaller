@@ -43,7 +43,7 @@ let broadcast = () => {};
 let store = null;
 let server = null;
 let serving = { port: 0, ip: "", widgets: {}, startedAt: 0 };
-const stats = { widgetlist: 0, downloads: {}, proxy: 0, streams: 0, lastTv: "", lastError: "" };
+const stats = { widgetlist: 0, downloads: {}, proxy: 0, streams: 0, lastTv: "", lastError: "", lastLookup: null };
 const cache = new Map();
 
 function init(deps) {
@@ -207,16 +207,34 @@ function cachePut(key, value) {
   cache.set(key, { ...value, at: Date.now() });
 }
 
+// Scrapers behind Cloudflare bot rules sometimes refuse a browser-looking client that isn't a real
+// browser, so a refused request is retried once as a plain app client.
+const RETRY_UAS = [UA, "okhttp/4.12.0"];
+
 async function relayFetch(target, res) {
   stats.proxy++;
   const key = target.href;
-  const hit = cacheGet(key);
+  const isLookup = /\/stream\/(movie|series)\//.test(target.pathname);
+  const hit = isLookup ? null : cacheGet(key);
   if (hit) { res.writeHead(200, { "Content-Type": hit.type, "Content-Length": hit.body.length, "Cache-Control": "max-age=3600" }); return res.end(hit.body); }
-  const { res: up } = await follow(target);
-  const body = await readAll(up, 15 * 1024 * 1024);
+  let up, body;
+  for (const ua of RETRY_UAS) {
+    ({ res: up } = await follow(target, { headers: { "User-Agent": ua, Accept: "application/json, */*" } }));
+    body = await readAll(up, 15 * 1024 * 1024);
+    if (![403, 429, 503].includes(up.statusCode)) break;
+  }
   const type = up.headers["content-type"] || "application/octet-stream";
-  if (up.statusCode === 200 && body.length < 3 * 1024 * 1024) cachePut(key, { type, body });
-  res.writeHead(up.statusCode, { "Content-Type": type, "Content-Length": body.length, "Cache-Control": "max-age=3600", "Access-Control-Allow-Origin": "*" });
+  if (isLookup) {
+    let count = null;
+    try { const j = JSON.parse(body.toString("utf8")); count = Array.isArray(j.streams) ? j.streams.filter((x) => x && x.url).length : null; } catch {}
+    stats.lastLookup = { host: target.hostname, status: up.statusCode, count, at: Date.now() };
+    if (up.statusCode >= 400) stats.lastError = `${target.hostname} answered HTTP ${up.statusCode}: ${body.toString("utf8").slice(0, 120)}`;
+    emit("lookup", stats.lastLookup);
+  }
+  if (!isLookup && up.statusCode === 200 && body.length < 3 * 1024 * 1024) cachePut(key, { type, body });
+  const headers = { "Content-Type": type, "Content-Length": body.length, "Cache-Control": isLookup ? "no-store" : "max-age=3600", "Access-Control-Allow-Origin": "*" };
+  if (up.statusCode >= 400) headers["X-Relay-Error"] = `${target.hostname} HTTP ${up.statusCode}`;
+  res.writeHead(up.statusCode, headers);
   res.end(body);
 }
 
@@ -315,7 +333,7 @@ async function start({ ip: ipHint, ports } = {}) {
   serving.ip = ip;
   serving.key = cfg.key;
   serving.startedAt = Date.now();
-  stats.widgetlist = 0; stats.downloads = {}; stats.lastError = "";
+  stats.widgetlist = 0; stats.downloads = {}; stats.lastError = ""; stats.lastLookup = null;
   try {
     serving.widgets = await widgetTable(cfg, relayBase(cfg, ip, serving.port), relayBase({ relayMode: "phone" }, ip, serving.port));
   } catch (error) { await stop(); throw error; }

@@ -52,7 +52,7 @@ var Net = {
       Net.get(viaBridge(url, '/proxy', '', CFG.phoneRelay), 6000, function (j) {
         Net.phoneOk = true; Net.phoneAt = new Date().getTime(); ok(j);
       }, function (err, status) {
-        if (status) { Net.phoneOk = true; Net.phoneAt = new Date().getTime(); if (fail) fail(err); return; }
+        if (status) { Net.phoneOk = true; Net.phoneAt = new Date().getTime(); if (fail) fail(err + ' (via phone)'); return; }
         Net.phoneOk = false; Net.phoneAt = new Date().getTime();
         Net.get(viaBridge(url), 20000, ok, fail);
       });
@@ -194,13 +194,19 @@ var Detail = {
   streams: function (id, title) {
     Detail.mode = 'streams'; Detail.epTitle = title; Detail.list = [{ label: 'Searching ' + CFG.streamAddons.length + ' source(s)...', head: true }]; Detail.f = 0; Detail.paint();
     var type = Detail.meta.type === 'series' ? 'series' : 'movie', pending = CFG.streamAddons.length, all = [];
+    Detail.errs = []; Detail.raw = 0;
     if (!pending) { Detail.list = [{ label: 'No stream addons set in TV Setup', head: true }]; Detail.paint(); return; }
     for (var i = 0; i < CFG.streamAddons.length; i++) (function (base) {
       Net.getJSON(trimSlash(base) + '/stream/' + type + '/' + id + '.json', function (j) {
         var s = j.streams || [];
+        Detail.raw += s.length;
         for (var k = 0; k < s.length; k++) if (s[k].url) all.push(s[k]);
         if (--pending === 0) Detail.gotStreams(all);
-      }, function () { if (--pending === 0) Detail.gotStreams(all); }, true);
+      }, function (err) {
+        var host = (base.match(/^https?:\/\/([^\/]+)/) || [])[1] || 'addon';
+        Detail.errs.push(host + ': ' + err);
+        if (--pending === 0) Detail.gotStreams(all);
+      }, true);
     })(CFG.streamAddons[i]);
   },
   score: function (s) {
@@ -218,7 +224,11 @@ var Detail = {
   gotStreams: function (all) {
     if (!all.length) {
       var why = (CFG.phoneRelay && Net.phoneOk === false) ? 'No streams. Open TV Setup on your phone (Older Samsung, Start sync) so it can look them up, then try again.' : 'No playable streams found';
-      Detail.list = [{ label: why, head: true }]; Detail.paint(); return;
+      Detail.list = [{ label: why, head: true }];
+      for (var e = 0; e < Detail.errs.length; e++) Detail.list.push({ label: Detail.errs[e], head: true });
+      if (Detail.raw) Detail.list.push({ label: Detail.raw + ' result(s) had no direct link: set up debrid in the addon', head: true });
+      if (!Detail.errs.length && !Detail.raw) Detail.list.push({ label: 'The addon returned an empty list (via ' + (Net.phoneOk ? 'phone' : 'Cloudflare') + ')', head: true });
+      Detail.paint(); return;
     }
     for (var i = 0; i < all.length; i++) all[i]._sc = Detail.score(all[i]);
     all.sort(function (a, b) { return b._sc - a._sc; });

@@ -1,3 +1,10 @@
+## 1.8.2
+
+- **Nuvio Lite: shows why there are no streams.** Instead of a bare "No playable streams found", the TV now lists what each addon answered (an HTTP error, results without debrid links, or an empty list) and whether it went through the phone or Cloudflare. The Older Samsung screen shows the last stream lookup (addon, HTTP status, playable count).
+- When an addon refuses the phone's request (403, 429 or 503), the phone retries once as a plain app client, which gets past bot rules that block fake browsers.
+- Stream lists are never cached, so a bad answer doesn't stick for 15 minutes.
+- Nuvio Lite 1.0.2: run **Start sync** and the TV's User App Sync once.
+
 ## 1.8.1
 
 - **Nuvio Lite: streams with the Cloudflare relay.** Torrentio (and most public scrapers) refuse requests from Cloudflare, so with the Orsay Relay every title showed "No playable streams found". Nuvio Lite now looks up streams and resolves the chosen link through this phone first (your home internet), and uses the Worker for everything else. Menus and posters work with the phone away; to find streams, have TV Setup open on the Older Samsung screen with the sync running. If the phone can't be reached, Nuvio Lite says so instead of showing an empty list. Run **Start sync** once so the TV gets the new Nuvio Lite (1.0.1).

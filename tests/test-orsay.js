@@ -16,6 +16,10 @@ function upstream() {
   return new Promise((resolve) => {
     const s = http.createServer((req, res) => {
       if (req.url === "/manifest/catalog/movie/top.json") { res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ metas: [{ id: "tt1", name: "A" }] })); }
+      if (req.url === "/picky/stream/movie/tt1.json") {
+        if (!/okhttp/.test(req.headers["user-agent"])) { res.writeHead(403); return res.end("blocked"); }
+        res.writeHead(200, { "Content-Type": "application/json" }); return res.end(JSON.stringify({ streams: [{ url: "http://x/1" }, { infoHash: "abc" }] }));
+      }
       if (req.url === "/go") { res.writeHead(302, { Location: "/media.mp4" }); return res.end(); }
       if (req.url === "/media.mp4") {
         const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || "");
@@ -78,6 +82,9 @@ function upstream() {
   const j = await (await fetch(`${B}/proxy?u=${encodeURIComponent(U + "/manifest/catalog/movie/top.json")}${k}`)).json();
   assert.strictEqual(j.metas[0].id, "tt1");
 
+  const picky = await fetch(`${B}/proxy?u=${encodeURIComponent(U + "/picky/stream/movie/tt1.json")}${k}`);
+  assert.strictEqual(picky.status, 200, "retried with app client header");
+  assert.deepStrictEqual({ ...orsay.status().stats.lastLookup, at: 0 }, { host: "127.0.0.1", status: 200, count: 1, at: 0 });
   const part = await fetch(`${B}/stream?u=${encodeURIComponent(U + "/go")}${k}&mode=proxy`, { headers: { Range: "bytes=100-1099" } });
   assert.strictEqual(part.status, 206);
   assert.ok(Buffer.from(await part.arrayBuffer()).equals(MEDIA.subarray(100, 1100)), "range through redirect");

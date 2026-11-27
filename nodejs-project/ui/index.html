@@ -727,6 +727,7 @@ function orsayStatus(series) {
       <span class="small muted">${st.port80 ? "" : `The TV only syncs from port 80. Android opens it to apps after Google's 2026 Play System Update (Android 13 and newer). Update under Settings → Security → Google Play system update, or do the one-time sync from a PC with <b>Orsay Bridge</b> (in the app's GitHub repo, <code>orsay/</code>). The relay still runs here on port ${st.port}.`}</span>
       <div class="kv"><span class="muted">Phone</span><b>${esc(st.ip)}:${st.port}</b><span class="muted">Apps</span><b>${st.widgets.map((w) => `${esc(w.title)} (${w.kb} KB)`).join(", ")}</b><span class="muted">Relay</span><b>${st.stats.proxy} requests, ${st.stats.streams} streams</b></div>
       <div class="bar"><i style="width:${pct}%"></i></div><span class="small">${phase}</span>
+      ${st.stats.lastLookup ? `<span class="small muted">Last stream lookup: ${esc(st.stats.lastLookup.host)}, HTTP ${st.stats.lastLookup.status}${st.stats.lastLookup.count == null ? "" : `, ${st.stats.lastLookup.count} playable`}</span>` : `<span class="small muted">No stream lookups from the TV yet</span>`}
       ${st.stats.lastError ? `<span class="small muted">Last relay error: ${esc(st.stats.lastError)}</span>` : ""}
     </div>
     ${st.port80 ? `<ol class="howto">${steps.map((x) => `<li><span>${x}</span></li>`).join("")}</ol>` : ""}
