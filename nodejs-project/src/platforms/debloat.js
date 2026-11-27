@@ -44,6 +44,11 @@ const ADS_WORDS = /\b(ads?|advert|adservices|acr|samba|track|tracking|telemetry|
 const STUB_WORDS = /\b(idle|stub|cts|unused|tidiness|test)\b/i;
 const CHOICE_WORDS = /\b(choice|personal|owner'?s|by choice|optional|preference)\b/i;
 
+// Fire TV packages that must never be turned off: Amazon's home (still the system Home under the
+// clean screen), Alexa's voice UI (Fire OS turns it back on at boot anyway), remote and controller
+// pairing, the on-screen keyboard, Settings and its pieces, first-run setup, HDMI-CEC/input handling.
+const FIRE_PROTECTED = /^com\.amazon\.(tv\.launcher|vizzini|device\.controllermanager|tv\.ime(\..*)?|tv\.settings(\..*)?|tv\.oobe|tv\.inputpreference\.service|device\.settings\.sdk\.internal\.library|tv\.legal\.notices|device\.bluetoothkeymaps|tv\.fireos\.tif)$/;
+
 function isKeepByDefault(pkg) {
   return KEEP_BY_DEFAULT.some((pattern) => pattern.test(pkg));
 }
@@ -112,7 +117,7 @@ function buildPlan(device) {
   const addFrom = (item, weight) => {
     for (const group of item.groups) {
       for (const entry of group.packages) {
-        if (!PKG_RE.test(entry.p) || isCore(entry.p)) continue;
+        if (!PKG_RE.test(entry.p) || isCore(entry.p) || FIRE_PROTECTED.test(entry.p)) continue;
         if (!device.packages.has(entry.p) || device.disabled?.has(entry.p)) continue;
         const existing = entries.get(entry.p);
         if (existing) { existing.votes += weight; continue; }
@@ -166,6 +171,8 @@ async function guard(adb, packages, log) {
   let list = packages.filter((pkg) => PKG_RE.test(pkg) && !isCore(pkg));
   const skipped = [];
   const drop = (pkg, reason) => { if (list.includes(pkg)) { list = list.filter((item) => item !== pkg); skipped.push({ pkg, reason }); } };
+
+  for (const pkg of list.slice()) if (FIRE_PROTECTED.test(pkg)) drop(pkg, "Fire TV needs it (home, remote, keyboard or Settings)");
 
   // Home owner: never leave the TV without something that answers Home.
   const homeOwner = (await adb.shell("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME 2>/dev/null | tail -n 1").catch(() => "")).trim().split("/")[0];
@@ -244,7 +251,7 @@ async function restore(adb, packages, { onProgress } = {}) {
   }
 }
 
-module.exports = {
+module.exports = { FIRE_PROTECTED,
   lists, matchList, buildPlan, guard, apply, restore, setupwraithOwnsWifi,
   STOCK_LAUNCHERS, SETUPWRAITH, CATEGORY_INFO, isCore, PKG_RE
 };

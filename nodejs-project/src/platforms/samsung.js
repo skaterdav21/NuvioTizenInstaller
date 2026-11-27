@@ -4,6 +4,7 @@
 
 const store = require("../core/store");
 const scan = require("../core/scan");
+const { yearFromModel } = require("./samsung-year");
 
 let handlers = null;
 function init(handlerMap) {
@@ -29,12 +30,8 @@ function variantFromYear(year) {
 // Samsung model codes carry a year letter: QN55Q60BAFXZA -> B (2022), UN50TU7000 -> T (2020),
 // QN65QN90B -> B, QN55LS03B -> B. The TV's REST API also reports e.g. "22_PONTUSM_UHD".
 function variantFromModel(model, apiModel = "") {
-  const apiYear = Number((String(apiModel).match(/^(\d\d)_/) || [])[1] || 0);
-  if (apiYear >= 15 && apiYear <= 40) return variantFromYear(2000 + apiYear);
-  const rest = String(model || "").toUpperCase().replace(/^[A-Z]{2}\d{2}/, "");
-  const letter = (rest.match(/^([NRTABCDEF])U\d/) || rest.match(/^[A-Z]{1,2}\d{2,3}([A-Z])/) || [])[1];
-  const years = { N: 2018, R: 2019, T: 2020, A: 2021, B: 2022, C: 2023, D: 2024, E: 2025, F: 2026 };
-  return variantFromYear(years[letter]);
+  const { year } = yearFromModel(model, apiModel);
+  return year >= 2018 ? variantFromYear(year) : "";
 }
 
 async function inspect({ ip }) {
@@ -44,6 +41,7 @@ async function inspect({ ip }) {
   const saved = await store.getDevice(deviceKey);
   const certStatus = await handlers.get("certs:status")?.(null).catch(() => ({ tvCount: 0 }));
   const guessed = variantFromModel(info.model, info.apiModel) || saved?.choices?.legacyVariant || "auto";
+  const age = yearFromModel(info.model, info.apiModel);
   await store.saveDevice({ id: deviceKey, platform: "samsung", profile: "samsung", ip, name: info.name || "Samsung TV", model: info.model, os: info.os || "Tizen" });
   return {
     platform: "samsung", profile: "samsung", ip, deviceKey,
@@ -52,6 +50,9 @@ async function inspect({ ip }) {
     reachable: Boolean(ports[8001] || ports[26101]),
     certificateSaved: (certStatus?.tvCount || 0) > 0,
     variants: VARIANTS,
+    // 2017 and older: no Nuvio build runs there, so the UI offers the streaming-stick route instead.
+    age,
+    tooOld: Boolean(age.year && age.year < 2018) || Boolean(info.legacy),
     recommendations: { nuvio: "legacy", legacyVariant: guessed }
   };
 }

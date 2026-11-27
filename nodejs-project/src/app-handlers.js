@@ -10,6 +10,7 @@ const scan = require("./core/scan");
 const android = require("./platforms/android");
 const lg = require("./platforms/lg");
 const samsung = require("./platforms/samsung");
+const yearInfo = require("./platforms/samsung-year");
 const debloat = require("./platforms/debloat");
 
 const APP_VERSION = (() => {
@@ -18,6 +19,7 @@ const APP_VERSION = (() => {
 
 const PROFILES = [
   { id: "samsung", platform: "samsung", label: "Samsung TV", sub: "Tizen, 2018 and newer" },
+  { id: "samsung-old", platform: "samsung-old", label: "Older Samsung", sub: "2011 to 2017" },
   { id: "lg", platform: "lg", label: "LG TV", sub: "webOS with Developer Mode" },
   { id: "shield", platform: "android", label: "NVIDIA Shield", sub: "Android TV" },
   { id: "onn", platform: "android", label: "onn box", sub: "Google TV / Android TV" },
@@ -66,6 +68,7 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   });
 
   handlers.set("device:check", async (_event, { ip, platform }) => scan.check(ip, platform));
+  handlers.set("samsung:year", async (_event, { model, year }) => (year ? yearInfo.fromYear(year) : yearInfo.yearFromModel(model || "")));
 
   handlers.set("device:inspect", async (_event, request) => {
     const platform = platformOf(request.profile);

@@ -18,6 +18,7 @@ const HORIZON = {
   grants: ["android.permission.READ_EXTERNAL_STORAGE", "com.android.providers.tv.permission.READ_EPG_DATA", "android.permission.READ_TV_LISTINGS", "android.permission.DUMP"]
 };
 const LAUNCHER_ACTIVITY = `${LAUNCHER_PKG}/.MainActivity`;
+const FIRE_HOME = "com.amazon.tv.launcher";
 const HOME_QUERY = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
 const CLAIM_QUERY = "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
 
@@ -54,7 +55,7 @@ setInterval(() => {
 async function readDevice(adb) {
   const props = ["ro.product.manufacturer", "ro.product.brand", "ro.product.model", "ro.product.device", "ro.product.name",
     "ro.build.version.sdk", "ro.build.version.release", "ro.product.cpu.abilist", "ro.serialno", "ro.boot.serialno", "ro.adb.secure",
-    "ro.build.characteristics", "ro.product.first_api_level"];
+    "ro.build.characteristics", "ro.product.first_api_level", "ro.build.version.name", "ro.build.version.fireos"];
   const out = await adb.shell(props.map((prop) => `echo "@@${prop}=$(getprop ${prop})"`).join("; "));
   const info = {};
   for (const line of out.split("\n")) {
@@ -95,8 +96,21 @@ async function readDevice(adb) {
     disabled,
     isFire,
     isGoogleTv,
-    os: isFire ? "Fire OS" : isGoogleTv ? `Google TV ${info["ro.build.version.release"] || ""}`.trim() : `Android TV ${info["ro.build.version.release"] || ""}`.trim()
+    fireOs: isFire ? fireOsVersion(info) : 0,
+    os: isFire ? fireOsLabel(info) : isGoogleTv ? `Google TV ${info["ro.build.version.release"] || ""}`.trim() : `Android TV ${info["ro.build.version.release"] || ""}`.trim()
   };
+}
+
+// Fire OS 6 = Android 7.1 (API 25), Fire OS 7 = Android 9 (28), Fire OS 8 = Android 11 (30).
+function fireOsVersion(info) {
+  const named = String(info["ro.build.version.fireos"] || info["ro.build.version.name"] || "").match(/(\d+)\.\d/);
+  if (named) return Number(named[1]);
+  const sdk = Number(info["ro.build.version.sdk"] || 0);
+  return sdk >= 30 ? 8 : sdk >= 28 ? 7 : sdk >= 25 ? 6 : 5;
+}
+function fireOsLabel(info) {
+  const exact = String(info["ro.build.version.fireos"] || "").trim() || (String(info["ro.build.version.name"] || "").match(/Fire OS ([\d.]+)/) || [])[1];
+  return exact ? `Fire OS ${exact}` : `Fire OS ${fireOsVersion(info)}`;
 }
 
 function recommendNuvio(device) {
@@ -114,7 +128,9 @@ function recommendHomeStyle(device) {
 
 function defaultHomeMode(device) {
   if (device.sdk && device.sdk < 26) return "none";
-  if (device.isFire) return "none";
+  // Fire OS won't hand Home to another app, but the clean screen can answer the Home button and
+  // cover Amazon's home whenever it comes up (Amazon's stays installed underneath).
+  if (device.isFire) return "redirect";
   // Google TV: taking Home fully means disabling the setup wizard, which breaks casting from phones.
   if (device.isGoogleTv) return "redirect";
   return "replace";
@@ -142,6 +158,7 @@ async function inspect({ ip, profile }, { onAuthPrompt } = {}) {
     memMb: device.memMb,
     freeMb: device.freeMb,
     isFire: device.isFire,
+    fireOs: device.fireOs,
     isGoogleTv: device.isGoogleTv,
     homeOwner: device.homeOwner,
     adbOpenWithoutPrompt: device.adbSecure === "0",
@@ -240,19 +257,19 @@ async function enableAccessibilityService(adb, service) {
 }
 
 async function setupHome(adb, job, step, device, choices, deviceKey, dockApps) {
-  if (device.sdk && device.sdk < 26) return "Skipped: this TV is older than Android 8, which the home screen needs.";
+  if (device.sdk && device.sdk < 26) return device.isFire ? "Skipped: Fire OS 6 is too old for the clean screen (it needs Fire OS 7 or newer)." : "Skipped: this TV is older than Android 8, which the home screen needs.";
   step.detail("Installing the home screen…");
   const result = await installApk(adb, job, step, { id: "launcher" }, { label: "home screen", replaceIncompatible: true });
   if (result.status !== "installed" && !device.packages.has(LAUNCHER_PKG)) throw new Error(result.detail);
 
-  const stock = await findStockLauncher(adb, device);
+  const stock = device.isFire ? FIRE_HOME : await findStockLauncher(adb, device);
   const config = {
     dock_apps: dockApps,
     fill_dock: true,
     reduced_motion: device.memMb && device.memMb < 1700,
     show_greeting: false
   };
-  if (choices.homeMode === "redirect" && stock) {
+  if ((choices.homeMode === "redirect" || device.isFire) && stock) {
     config.stock_home_redirect = stock;
     config.power_on_home_always = true;
   }
@@ -286,6 +303,22 @@ async function setupHome(adb, job, step, device, choices, deviceKey, dockApps) {
       }
     }
     return "The clean screen is now Home. The old one is turned off; Undo brings it back.";
+  }
+
+  if (device.isFire) {
+    // Amazon's home can't be turned off or replaced; it stays the system Home and the clean screen
+    // comes up over it every time it shows (Home button, power-on, leaving an app).
+    step.detail("Making the Home button open the clean screen…");
+    const previous = await enableAccessibilityService(adb, "HomeKeyService");
+    await store.updateUndo(deviceKey, (undo) => ({ ...undo, homeMode: "redirect", accessibility: undo.accessibility ?? previous }));
+    await adb.shell(`cmd package compile -m speed -f ${LAUNCHER_PKG} >/dev/null 2>&1; am start -W -n ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; true`);
+    const enabled = (await adb.shell("settings get secure enabled_accessibility_services")).trim();
+    if (!enabled.includes(`${LAUNCHER_PKG}/`)) {
+      throw new Error("Fire TV didn't turn on the clean screen's Home-button service. Open Settings > Accessibility on the Fire TV and check for it, then run setup again.");
+    }
+    return device.fireOs >= 8
+      ? "The Home button now opens the clean screen. Amazon's home stays underneath and may flash for a moment."
+      : "The Home button now opens the clean screen. On Fire OS 7 Amazon's home can show for a second or two first.";
   }
 
   if (choices.homeMode === "redirect") {
@@ -400,9 +433,10 @@ async function run({ ip, profile, choices }, job) {
 
   if (choices.homeMode && choices.homeMode !== "none") {
     const nuvioPkg = choices.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv";
-    const dock = [nuvioPkg, "com.nuvio.tv", "space.nuvio.nativelegacy", choices.smarttube ? "com.teamsmart.videomanager.tv" : "com.google.android.youtube.tv", "com.plexapp.android", "com.netflix.ninja"];
+    const youtube = choices.smarttube ? "com.teamsmart.videomanager.tv" : device.isFire ? "com.amazon.firetv.youtube" : "com.google.android.youtube.tv";
+    const dock = [nuvioPkg, "com.nuvio.tv", "space.nuvio.nativelegacy", youtube, "com.plexapp.android", "com.netflix.ninja", ...(device.isFire ? ["com.amazon.amazonvideo.livingroom"] : [])];
     const dockApps = [...new Set(dock)].slice(0, 5);
-    await job.run("home", (step) => choices.homeStyle === "horizon"
+    await job.run("home", (step) => choices.homeStyle === "horizon" && !device.isFire
       ? setupHorizon(adb, job, step, device, choices, deviceKey, {
         name: choices.horizon?.name || "",
         tmdb: choices.horizon?.tmdb || "",
@@ -481,7 +515,9 @@ async function undo({ ip, deviceKey, removeLauncher = true }, job) {
     return `Turned back on ${record.disabled.length}`;
   }, { optional: true });
   await job.run("home", async () => {
-    if (record.stockLauncher) {
+    if (record.stockLauncher === FIRE_HOME) {
+      // Never changed on Fire TV: it only needs the Home-button service turned off (below).
+    } else if (record.stockLauncher) {
       await adb.shell(`pm enable --user 0 ${record.stockLauncher} >/dev/null 2>&1; true`);
       const activity = (await adb.shell(`cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME ${record.stockLauncher} 2>/dev/null | tail -n 1`)).trim();
       if (activity.includes("/")) await adb.shell(`cmd package set-home-activity --user 0 ${activity} >/dev/null 2>&1; true`);

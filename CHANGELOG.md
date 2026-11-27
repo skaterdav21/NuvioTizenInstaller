@@ -1,3 +1,10 @@
+## 1.7.0
+
+- **Fire TV: full setup.** Fire TV Sticks, Cubes and Fire TV sets (Fire OS 7 and 8) now get the clean home screen too: Fire OS won't hand Home to another app, so the clean screen answers the Home button and covers Amazon's home whenever it shows (Amazon's stays installed underneath; it can flash for a moment). Nuvio Legacy (lite) is picked for 2 GB sticks, in the 32-bit build Fire OS uses. The debloat uses CleanYourTV's tested Fire TV lists and never touches Amazon's home, Alexa's voice UI, remote pairing, the keyboard or Settings. Undo removes it all. Fire OS 6 gets Nuvio and the clean-up but not the home screen.
+- **Older Samsung (2011 to 2017).** New "Older Samsung" choice, and the Wi-Fi scan now spots these sets. Enter the model number (or pick the year) and the app tells you what the TV is (Orsay, or Tizen 2.3 to 3.0) and why Nuvio can't run on it, then walks you through the fix: a streaming stick on its HDMI port, which picks to buy and which to avoid (Vega OS sticks), and the Samsung settings that make its remote drive the stick. Developer access for those TVs (the "develop" login and User App Sync on 2011 to 2014 sets) is included for other apps.
+- **Developer mode guide.** "How to turn on developer mode" (on the Set up screen and in Settings) covers every TV and box with step-by-step menus, other models' paths, and fixes for when it won't turn on. The connect screen shows the same help for the TV you picked, plus where to find its IP.
+- Samsung model years are now read for every year from 2010 (43 model formats tested).
+
 ## 1.6.1
 
 - Fixed: Samsung upload stalling with "TV stopped acknowledging the upload (no reply in 30s)" and then "TV did not open the upload channel". The app now sends the package in 4 KB packets, one record each, which is the size it tells the TV to expect (1.6.0 sent up to 256 KB at a time and older Tizen builds lock up on that).

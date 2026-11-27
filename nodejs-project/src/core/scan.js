@@ -4,12 +4,14 @@
 
 const net = require("node:net");
 const http = require("node:http");
+const { yearFromModel } = require("../platforms/samsung-year");
 
 // port -> what an open port says about the device
 const PROBES = [
   { port: 5555, tag: "adb" },        // Android TV / Google TV / Fire TV with network debugging on
   { port: 26101, tag: "tizen-dev" }, // Samsung with Developer Mode on
   { port: 8001, tag: "samsung" },    // any Samsung Smart TV (REST API)
+  { port: 55000, tag: "samsung-legacy" }, // Samsung 2010-2015 remote-control port (Orsay, early Tizen)
   { port: 9922, tag: "webos-dev" },  // LG with Developer Mode on
   { port: 3000, tag: "webos" },      // any LG webOS TV (second-screen API)
   { port: 8008, tag: "cast" }        // Google TV / Android TV / Chromecast / Sony (Cast)
@@ -40,17 +42,25 @@ function getJson(url, timeoutMs = 2500) {
 
 async function identify(host, tags) {
   const info = { ip: host, tags, name: "", model: "", maker: "", platform: "", devMode: false, os: "" };
-  if (tags.includes("samsung") || tags.includes("tizen-dev")) {
+  if (tags.includes("samsung") || tags.includes("tizen-dev") || tags.includes("samsung-legacy")) {
     info.platform = "samsung";
     info.maker = "Samsung";
     info.devMode = tags.includes("tizen-dev");
-    const json = await getJson(`http://${host}:8001/api/v2/`);
+    const json = tags.includes("samsung") || tags.includes("tizen-dev") ? await getJson(`http://${host}:8001/api/v2/`) : null;
     if (json?.device) {
       info.name = json.device.name || json.name || "";
       info.model = json.device.modelName || json.device.model || "";
       info.os = json.device.OS || "Tizen";
       info.apiModel = String(json.device.model || "");
+    } else {
+      // 2015 sets answer the older multiscreen API; 2010-2014 sets only have the remote port.
+      const ms = tags.includes("samsung") ? await getJson(`http://${host}:8001/ms/1.0/`) : null;
+      if (ms) { info.name = ms.DeviceName || ms.name || ""; info.model = ms.ModelName || ms.Model || ""; info.os = "Tizen"; }
+      if (!info.model && tags.includes("samsung-legacy")) { info.legacy = true; info.os = "Smart Hub (2015 or older)"; }
     }
+    const age = yearFromModel(info.model, info.apiModel);
+    info.year = age.year;
+    if (info.legacy || (age.year && age.year < 2018)) info.tooOld = true;
   } else if (tags.includes("webos") || tags.includes("webos-dev")) {
     info.platform = "lg";
     info.maker = "LG";
@@ -73,7 +83,7 @@ async function identify(host, tags) {
 
 function guessProfile(info) {
   const text = `${info.maker} ${info.model} ${info.name}`.toLowerCase();
-  if (info.platform === "samsung") return "samsung";
+  if (info.platform === "samsung") return info.tooOld ? "samsung-old" : "samsung";
   if (info.platform === "lg") return "lg";
   if (/nvidia|shield/.test(text)) return "shield";
   if (/\bonn\b|walmart/.test(text)) return "onn";
@@ -113,11 +123,11 @@ async function scan(subnetIp, { onProgress, onFound, timeoutMs = 450, concurrenc
   const results = [];
   for (const [host, tags] of open) {
     // A router or NAS with only port 3000/8001 open is not a TV: require a TV-specific signal.
-    const tvLike = tags.some((tag) => ["adb", "tizen-dev", "webos-dev", "cast"].includes(tag)) ||
+    const tvLike = tags.some((tag) => ["adb", "tizen-dev", "webos-dev", "cast", "samsung-legacy"].includes(tag)) ||
       (tags.includes("samsung") && tags.length >= 1) || (tags.includes("webos") && tags.length >= 1);
     if (!tvLike) continue;
     const info = await identify(host, tags);
-    if (info.platform === "samsung" && !info.model && !tags.includes("tizen-dev")) continue;
+    if (info.platform === "samsung" && !info.model && !tags.includes("tizen-dev") && !tags.includes("samsung-legacy")) continue;
     results.push(info);
     if (onFound) onFound(info);
   }
@@ -127,7 +137,7 @@ async function scan(subnetIp, { onProgress, onFound, timeoutMs = 450, concurrenc
 
 async function check(address, platform) {
   const [host, customPort] = String(address).split(":");
-  const ports = { android: [Number(customPort) || 5555], samsung: [26101, 8001], lg: [9922, 3000, 9991] }[platform] || [];
+  const ports = { android: [Number(customPort) || 5555], samsung: [26101, 8001], "samsung-old": [26101, 8001, 55000], lg: [9922, 3000, 9991] }[platform] || [];
   const out = {};
   await Promise.all(ports.map(async (port) => { out[port] = await probe(host, port, 1500); }));
   if (platform === "android" && customPort) out[5555] = out[Number(customPort)];

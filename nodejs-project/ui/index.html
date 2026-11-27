@@ -93,6 +93,22 @@
   ol.howto li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; background: var(--key); display: grid; place-items: center; font-size: 13px; font-weight: 700; color: var(--muted); }
   ol.howto b { font-weight: 700; }
 
+  details.help { background: var(--key); border-radius: var(--r-key); margin: 0 0 12px; }
+  details.help > summary { cursor: pointer; padding: 13px 16px; font-weight: 650; list-style: none; display: flex; align-items: center; gap: 10px; }
+  details.help > summary::-webkit-details-marker { display: none; }
+  details.help > summary::after { content: "+"; margin-left: auto; color: var(--faint); font-size: 20px; line-height: 1; }
+  details.help[open] > summary::after { content: "−"; }
+  details.help > .inner { padding: 0 16px 12px; }
+  details.help ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 14px; }
+  details.help ul li { margin: 0 0 8px; }
+  details.help ol.howto li::before { background: var(--body); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  .chip { border: 1px solid var(--edge); background: var(--key); border-radius: 999px; padding: 8px 14px; cursor: pointer; font-weight: 650; }
+  .chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .verdict { border-radius: var(--r-sheet); padding: 16px 18px; background: var(--key); margin: 0 0 16px; }
+  .verdict.warn { box-shadow: inset 4px 0 0 var(--yellow); }
+  .verdict.ok { box-shadow: inset 4px 0 0 var(--green); }
+  .verdict b { display: block; font-size: 17px; margin-bottom: 4px; }
   .port { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--key); margin: 0 0 16px; font-size: 14px; }
 
   /* Run view */
@@ -228,15 +244,102 @@ function setDock(action, hint, onClick, { enabled = true, pulse = false } = {}) 
 }
 
 // ---------------- Profiles & instructions ----------------
-const GLYPH = { samsung: "Sa", lg: "LG", shield: "Nv", onn: "onn", sony: "Sy", androidtv: "TV", firetv: "Fi", chromecast: "TV" };
-const HOWTO = {
-  shield: ["Open <b>Settings → Device Preferences → About</b>.", "Select <b>Build</b> 7 times until it says you're a developer.", "Go back to <b>Device Preferences → Developer options</b>.", "Turn on <b>Network debugging</b>."],
-  onn: ["Open <b>Settings → System → About</b>.", "Select <b>Android TV OS build</b> 7 times.", "Go back to <b>System → Developer options</b>.", "Turn on <b>USB debugging</b>. On onn boxes this also opens network debugging."],
-  sony: ["Open <b>Settings → System → About</b>.", "Select <b>Build</b> 7 times.", "Go back to <b>System → Developer options</b>.", "Turn on <b>USB debugging</b> (and <b>Network debugging</b> if you see it)."],
-  androidtv: ["Open <b>Settings → System</b> (or Device Preferences) <b>→ About</b>.", "Select <b>Build</b> or <b>Android TV OS build</b> 7 times.", "Open <b>Developer options</b>.", "Turn on <b>USB debugging</b> and <b>Network debugging</b> if it's there."],
-  firetv: ["Open <b>Settings → My Fire TV → About</b>.", "Select the device name 7 times.", "Go back to <b>My Fire TV → Developer Options</b>.", "Turn on <b>ADB Debugging</b>."],
-  samsung: ["On the TV, open <b>Apps</b>.", "Press <b>1 2 3 4 5</b> on the remote (or the on-screen keypad).", "Turn <b>Developer mode</b> on and set <b>Host PC IP</b> to this phone's IP below.", "Hold the power button until the TV restarts."],
-  lg: ["Install the <b>Developer Mode</b> app from LG Content Store and sign in with an LG developer account.", "Turn <b>Dev Mode Status</b> on (the TV restarts).", "Open the app again and turn on <b>Key Server</b>.", "Type the 6-character <b>Passphrase</b> it shows into the box below."]
+const GLYPH = { samsung: "Sa", "samsung-old": "Sa", lg: "LG", shield: "Nv", onn: "onn", sony: "Sy", androidtv: "TV", firetv: "Fi", chromecast: "TV" };
+// Developer mode, per device. steps: the short path; more: other models; tips: when it doesn't work.
+const GUIDES = {
+  samsung: {
+    steps: ["On the TV, press <b>Home</b> and open <b>Apps</b>.",
+      "With Apps open, enter <b>1 2 3 4 5</b> on the remote. No number keys? Press the <b>123</b> or color button to bring up the on-screen keypad.",
+      "Turn <b>Developer mode</b> on. In <b>Host PC IP</b>, enter this phone's IP (shown below), then choose OK.",
+      "Restart the TV: hold the remote's power button until the Samsung logo shows. The Apps screen now says Developer Mode at the top."],
+    tips: ["Nothing happens after 1 2 3 4 5: make sure the Apps screen is open (not the home bar) and enter the numbers a little faster.",
+      "Host PC IP has to be this phone. If the phone's IP changes, enter the new one and restart the TV again.",
+      "Developer mode stays on after restarts. Leave it on; updates need it.",
+      "TV from 2017 or older? Go back and pick <b>Older Samsung</b>. Nuvio can't run on those, but a streaming stick can."],
+    ip: "Settings → General → Network → Network Status → IP Settings."
+  },
+  lg: {
+    steps: ["On this phone, create a free LG Developer account at <a class=\"link\" href=\"https://webostv.developer.lge.com\">webostv.developer.lge.com</a> and confirm the email it sends.",
+      "On the TV, open the <b>LG Content Store</b> (Apps), search for <b>Developer Mode</b> and install it.",
+      "Open Developer Mode, sign in with that account and turn <b>Dev Mode Status</b> on. The TV restarts.",
+      "Open Developer Mode again and turn on <b>Key Server</b>. Type the 6-character <b>Passphrase</b> it shows into the box below."],
+    tips: ["Dev Mode Status won't turn on: the account's email isn't confirmed yet, or the TV's date and time are wrong.",
+      "Developer Mode runs out after about 50 hours unless it's extended. This app extends it every time you open it, so open TV Setup on the same Wi-Fi now and then.",
+      "Key Server only has to be on while this app connects the first time."],
+    ip: "Settings → Network → Wi-Fi Connection → your network → Advanced Wi-Fi Settings."
+  },
+  shield: {
+    steps: ["Open <b>Settings → Device Preferences → About</b>.", "Select <b>Build</b> 7 times until it says you're a developer.",
+      "Go back to <b>Device Preferences → Developer options</b>.", "Turn on <b>Network debugging</b> (and <b>USB debugging</b>)."],
+    tips: ["Shield updates sometimes turn Network debugging off. Turn it back on if this app can't reach the Shield.",
+      "The Shield asks <b>Allow network debugging?</b> the first time. Tick Always allow."],
+    ip: "Settings → Network & Internet → your network."
+  },
+  onn: {
+    steps: ["Open <b>Settings → System → About</b>.", "Select <b>Android TV OS build</b> 7 times. Enter your PIN if it asks.",
+      "Go back to <b>System → Developer options</b>.", "Turn on <b>USB debugging</b>. On onn boxes this also opens network debugging."],
+    tips: ["Developer options missing: select the build number again until it says you're a developer."],
+    ip: "Settings → Network & Internet → your network."
+  },
+  sony: {
+    steps: ["Open <b>Settings → System → About</b>.", "Select <b>Build</b> 7 times.", "Go back to <b>System → Developer options</b>.",
+      "Turn on <b>USB debugging</b> (and <b>Network debugging</b> if you see it)."],
+    more: [{ title: "Older Sony Android TV (2015 to 2020)", steps: ["Open <b>Settings → Device Preferences → About</b> and select <b>Build</b> 7 times.", "Open <b>Device Preferences → Developer options</b> and turn on <b>USB debugging</b>."] }],
+    ip: "Settings → Network & Internet → your network."
+  },
+  androidtv: {
+    steps: ["Open <b>Settings → System</b> (or Device Preferences) <b>→ About</b>.", "Select <b>Build</b> or <b>Android TV OS build</b> 7 times.",
+      "Open <b>Developer options</b>.", "Turn on <b>USB debugging</b>, and <b>Network debugging</b> if it's there."],
+    tips: ["TCL, Hisense and Philips TVs sometimes hide About under <b>Device Preferences</b> or <b>System → About → Version</b>.",
+      "Chromecast with Google TV: the same steps; it lists Developer options under System."],
+    ip: "Settings → Network & Internet → your network."
+  },
+  firetv: {
+    steps: ["Open <b>Settings → My Fire TV → About</b>.",
+      "Select the first item, the device's name (like Fire TV Stick 4K Max), 7 times until it says <b>No need, you are already a developer</b>.",
+      "Press Back, open <b>Developer Options</b> and turn on <b>ADB Debugging</b>.",
+      "When the Fire TV asks <b>Allow USB debugging?</b>, tick Always allow and choose OK."],
+    more: [{ title: "Older Fire TV (2019 and earlier, Fire OS 6)", steps: ["<b>Developer Options</b> is already in <b>Settings → My Fire TV</b> (or <b>Device</b>). Open it and turn on <b>ADB Debugging</b>."] }],
+    tips: ["<b>Apps from Unknown Sources</b> isn't needed. This phone installs over ADB debugging.",
+      "If the software version under About starts with <b>1.</b>, the stick runs Vega OS (Fire TV Stick 4K Select and the newest Fire TV Sticks). Vega OS can't install Android apps, so Nuvio can't go on it.",
+      "Fire TV keeps Amazon's home screen installed. The clean screen answers the Home button and covers Amazon's."],
+    ip: "Settings → My Fire TV → About → Network."
+  }
+};
+GUIDES.chromecast = GUIDES.androidtv;
+const HOWTO = Object.fromEntries(Object.entries(GUIDES).map(([id, g]) => [id, g.steps]));
+
+function guideExtras(id) {
+  const g = GUIDES[id] || GUIDES.androidtv;
+  const more = (g.more || []).map((m) => `<details class="help"><summary>${esc(m.title)}</summary><div class="inner"><ol class="howto">${m.steps.map((x) => `<li><span>${x}</span></li>`).join("")}</ol></div></details>`).join("");
+  const tips = g.tips?.length ? `<details class="help"><summary>Not working?</summary><div class="inner"><ul>${g.tips.map((t) => `<li>${t}</li>`).join("")}</ul></div></details>` : "";
+  return more + tips;
+}
+
+// Older Samsung (2011 to 2017): no Nuvio build runs there. Developer access for reference, and the stick route.
+const ORSAY = {
+  D: { label: "2011 (D)", steps: ["Open Smart Hub and press <b>A</b> (red) to log in.", "Create an account named <b>develop</b>. The password usually fills in by itself.",
+    "Log in, press <b>D</b> (blue) or Tools, then go to <b>Settings → Development → Setting Server IP</b>.", "Enter the computer's IP, then choose <b>User Application Synchronization</b>."] },
+  E: { label: "2012 (E)", steps: ["Open Smart Hub, press <b>A</b> (red) and log in as <b>develop</b> (the password fills in, or try sso1029dev!).",
+    "Tools → <b>Settings → Development → Server IP setting</b>.", "Run <b>User Application Synchronization</b>."] },
+  F: { label: "2013 (F)", steps: ["Menu → <b>Smart Features → Samsung Account → Log In</b>, username <b>develop</b>, password blank.",
+    "Smart Hub → <b>Apps → More Apps → Options → IP Setting</b>, enter the computer's IP.", "Same Options menu → <b>Start User App Sync</b>."] },
+  H: { label: "2014 (H)", steps: ["Menu → <b>Smart Hub → Samsung Account → Log In</b> as <b>develop</b>.",
+    "In Smart Hub, highlight any app and <b>hold Enter</b> until the edit menu shows.", "Choose <b>IP Setting</b>, enter the computer's IP, then hold Enter again and pick <b>Start User App Sync</b>."] }
+};
+const STICKS = [
+  ["Fire TV Stick 4K Max (2023)", "Fire OS 8, 2 GB. Gets the clean home screen and Nuvio Legacy from this app."],
+  ["onn 4K Pro or onn 4K box", "Google TV with more memory; runs the full Nuvio app and Horizon Home."],
+  ["Avoid: Fire TV Stick 4K Select and the newest Fire TV Sticks", "They run Vega OS, which can't install Nuvio. If the software version under About starts with 1., return it."]
+];
+
+const OLD_SAMSUNG_TV = {
+  "tizen-old": ["Settings → General → <b>External Device Manager → Anynet+ (HDMI-CEC)</b>: On. The Samsung remote then works the stick, and the TV switches to it when it wakes.",
+    "Settings → General → Smart Features: turn off <b>Autorun Smart Hub</b> so the TV opens on the stick's input.",
+    "Settings → Support → Terms & Policy: turn off <b>Viewing Information Services</b> and <b>Interest-Based Advertisement</b>."],
+  orsay: ["Menu → <b>System → Anynet+ (HDMI-CEC)</b>: On. The Samsung remote then works the stick, and the TV switches to it when it wakes.",
+    "Power the stick from its own wall adapter, not the TV's USB port. Old TV ports don't give 4K sticks enough power and turn them off with the TV.",
+    "Leave the TV on the stick's HDMI input; at power-on it comes back to it."]
 };
 const AD_CHECKLIST = {
   samsung: ["Settings → General & Privacy → Terms & Privacy: turn off <b>Viewing Information Services</b> and <b>Interest-Based Advertisement</b>.", "Settings → General → Smart Features: turn off <b>Autorun Smart Hub</b> and <b>Autorun Last App</b>.", "Settings → Support → Terms & Policy: turn off <b>Voice Recognition</b> if you don't use it."],
@@ -248,8 +351,8 @@ function profile(id) { return state.info?.profiles.find((p) => p.id === id) || {
 // ---------------- Views ----------------
 function render() {
   document.body.classList.toggle("deep", state.view !== "home");
-  const views = { home: viewHome, pick: viewPick, connect: viewConnect, plan: viewPlan, run: viewRun };
-  $("title").textContent = { home: "TV Setup", pick: "Set up a TV", connect: "Connect", plan: "Your setup", run: state.job?.title || "Setting up" }[state.view];
+  const views = { home: viewHome, pick: viewPick, connect: viewConnect, plan: viewPlan, run: viewRun, guide: viewGuide, oldsamsung: viewOldSamsung };
+  $("title").textContent = { home: "TV Setup", pick: "Set up a TV", connect: "Connect", plan: "Your setup", run: state.job?.title || "Setting up", guide: "Developer mode", oldsamsung: "Older Samsung" }[state.view];
   (views[state.view] || viewHome)();
 }
 
@@ -286,6 +389,7 @@ function viewHome() {
   document.querySelectorAll("[data-device]").forEach((el) => el.onclick = () => openDevice(el.dataset.device));
   document.querySelectorAll("[data-found]").forEach((el) => el.onclick = () => {
     const f = state.scan.found.find((item) => item.ip === el.dataset.found);
+    if (f.profile === "samsung-old") { go("oldsamsung", { old: { model: f.model || "", year: f.year || 0, ip: f.ip, legacy: Boolean(f.legacy) } }); return; }
     go("connect", { target: { profile: f.profile || (f.platform === "android" ? "androidtv" : f.platform), ip: f.ip, name: f.name || f.model } });
   });
   $("scan-btn").onclick = runScan;
@@ -313,7 +417,11 @@ function viewPick() {
   const profiles = state.info?.profiles || [];
   $("view").innerHTML = `<h2>What are you setting up?</h2><p class="lede">Each one gets the best Nuvio build for it and the clean-up steps that are safe on that system.</p>
     <div class="device-grid">${profiles.map((p) => `<button class="key" data-profile="${p.id}"><span class="glyph">${esc(GLYPH[p.id])}</span><span><span class="title">${esc(p.label)}</span><span class="sub">${esc(p.sub)}</span></span></button>`).join("")}</div>`;
-  document.querySelectorAll("[data-profile]").forEach((el) => el.onclick = () => go("connect", { target: { profile: el.dataset.profile, ip: "" } }));
+  $("view").insertAdjacentHTML("beforeend", `<button class="key" id="guide-btn" style="margin-top:16px"><span class="glyph">?</span><span class="grow"><span class="title">How to turn on developer mode</span><span class="sub">Every TV and box, with fixes for when it won't turn on</span></span><span class="chev">›</span></button>`);
+  document.querySelectorAll("[data-profile]").forEach((el) => el.onclick = () => el.dataset.profile === "samsung-old"
+    ? go("oldsamsung", { old: { model: "", year: 0 } })
+    : go("connect", { target: { profile: el.dataset.profile, ip: "" } }));
+  $("guide-btn").onclick = () => go("guide");
   setDock("", "", null);
 }
 
@@ -325,11 +433,12 @@ function viewConnect() {
     <h2>${esc(p.label)}</h2>
     <p class="lede">Turn on developer mode once. Setup and future updates then run from this phone.</p>
     <ol class="howto">${(HOWTO[t.profile] || HOWTO.androidtv).map((s) => `<li><span>${s}</span></li>`).join("")}</ol>
+    ${guideExtras(t.profile)}
     ${isSamsung ? `<div class="port"><span>This phone's IP:</span><b id="my-ip">${esc(phoneIp() || "not on Wi-Fi")}</b><button class="link" id="copy-ip">Copy</button></div>` : ""}
     <label class="field"><span>TV's IP address</span><input type="text" id="ip" inputmode="decimal" placeholder="192.168.1.50" value="${esc(t.ip || "")}"></label>
     ${isLg ? `<label class="field"><span>Passphrase from the Developer Mode app</span><input type="text" id="pass" class="code" maxlength="6" autocomplete="off" autocapitalize="characters" value="${esc(t.passphrase || "")}"></label>` : ""}
     <div class="port" id="port"><span class="dot"></span><span id="port-text">Enter the TV's IP address</span></div>
-    <p class="small muted">${p.platform === "android" ? "The TV shows <b>Allow USB debugging?</b> the first time. Choose Allow and tick Always allow." : isLg ? "Find the IP under Settings → Network → Wi-Fi → Advanced." : "Find the IP under Settings → General → Network → Network Status → IP Settings."}</p>`;
+    <p class="small muted">${p.platform === "android" ? "The TV shows <b>Allow USB debugging?</b> the first time. Choose Allow and tick Always allow. " : ""}Find the IP under ${(GUIDES[t.profile] || GUIDES.androidtv).ip}</p>`;
   $("copy-ip")?.addEventListener("click", () => { bridge?.copyText(phoneIp()); toast("Copied"); });
   const check = async () => {
     const ip = $("ip")?.value.trim();
@@ -399,14 +508,17 @@ function viewPlan() {
       ${radio("nuvio", "custom", c.nuvio, "My own Nuvio build", c.customApkName ? `Using ${esc(c.customApkName)}` : "Pick an APK file from this phone.")}
       ${radio("nuvio", "skip", c.nuvio, has ? "Keep the installed one" : "Don't install Nuvio", "")}
       ${has ? toggle("replace", c.replaceIncompatible, "Replace a differently signed Nuvio", "Only if the installed one is a different build. Its settings are reset.") : ""}</div>`;
-    const homeOptions = s.isFire ? `<div class="opt"><span class="d">Fire TV locks its home screen, so it stays. Everything else still applies.</span></div>` :
+    const homeOptions = s.isFire ? ((s.sdk && s.sdk < 26) ? `<div class="opt"><span class="d">Fire OS 6 is too old for the clean screen. Everything else still applies.</span></div>` :
+      radio("home", "redirect", c.homeMode, "Home button opens the clean screen", `Fire TV won't let another app replace its home, so Amazon's stays installed underneath and the clean screen covers it. ${s.fireOs >= 8 ? "It can flash for a moment." : "On Fire OS 7 it can show for a second or two first."}`, true) +
+      radio("home", "none", c.homeMode, "Keep Amazon's home screen", "")) :
       (s.sdk && s.sdk < 26) ? `<div class="opt"><span class="d">This TV is older than Android 8, which the clean home screen needs.</span></div>` :
       radio("home", "replace", c.homeMode, "Replace the home screen", s.isGoogleTv ? "Turns off Google TV's home. Casting from phones can stop working on Google TV." : "Turns off the stock home. Undo brings it back.", rec.homeMode === "replace") +
       radio("home", "redirect", c.homeMode, "Home button opens the clean screen", "Keeps the stock home and casting working behind it.", rec.homeMode === "redirect") +
       radio("home", "none", c.homeMode, "Leave the home screen alone", "");
     const hz = state.info?.settings?.horizon || {};
-    const canHome = !s.isFire && !(s.sdk && s.sdk < 26);
-    const styleOptions = canHome ? radio("style", "horizon", c.homeStyle, "Horizon Home", `Artwork backdrop, Nuvio's Continue Watching, a Live TV guide, memory and weather in the top bar. About 160 MB.${c.nuvio === "nuvio-legacy-android" ? " Continue Watching needs the official Nuvio app." : ""}${!hz.tmdb ? " Add a TMDB key in Settings for artwork." : ""}`, rec.homeStyle === "horizon") +
+    const canHome = !(s.sdk && s.sdk < 26);
+    if (s.isFire) c.homeStyle = "clean";
+    const styleOptions = canHome && s.isFire ? radio("style", "clean", "clean", "Minimal (CleanYourTV)", "Your apps in a tidy grid with Nuvio first. Horizon Home isn't offered on Fire TV.", true) : canHome ? radio("style", "horizon", c.homeStyle, "Horizon Home", `Artwork backdrop, Nuvio's Continue Watching, a Live TV guide, memory and weather in the top bar. About 160 MB.${c.nuvio === "nuvio-legacy-android" ? " Continue Watching needs the official Nuvio app." : ""}${!hz.tmdb ? " Add a TMDB key in Settings for artwork." : ""}`, rec.homeStyle === "horizon") +
       radio("style", "clean", c.homeStyle, "Minimal (CleanYourTV)", "Just your apps in a tidy grid with Nuvio first. Lightest on memory.", rec.homeStyle === "clean") : "";
     body += `<div class="group"><div class="head"><b>Home screen</b><span class="muted">no ads, Nuvio first</span></div>${styleOptions}${canHome ? `<div class="opt" style="padding-bottom:0"><span class="d">How it takes over Home</span></div>` : ""}${homeOptions}</div>`;
     const d = s.debloat; const count = c.debloat.length;
@@ -418,6 +530,11 @@ function viewPlan() {
       ${toggle("smarttube", c.smarttube, "Add SmartTube", "YouTube without ads, made for TV remotes.")}</div>`;
     if (s.undoAvailable) body += `<button class="btn full" id="undo-btn">Undo earlier changes on this TV</button>`;
     if (s.adbOpenWithoutPrompt) body += `<p class="small" style="color:var(--yellow)">This TV lets any device on the network connect without asking. Turn off network debugging when you're done.</p>`;
+  } else if (s.platform === "samsung" && s.tooOld) {
+    $("view").innerHTML = body + oldSamsungBody({ model: s.model, year: s.age?.year || 0, legacy: !s.age?.year }, s.age);
+    bindOldSamsung();
+    setDock("Set up a stick", "Fire TV Stick or onn box for this TV", () => go("pick"), { pulse: true });
+    return;
   } else if (s.platform === "samsung") {
     body += `<div class="group"><div class="head"><b>Nuvio Legacy</b><span class="muted">native build, much faster than the web app</span></div>
       <label class="opt"><span class="grow"><span class="t">TV generation</span><span class="d">Picked from the model. Change it if setup says the build doesn't fit.</span>
@@ -499,6 +616,71 @@ function openSheet(html, onClose) {
   sheetClose = onClose; $("scrim").onclick = closeSheet;
 }
 function closeSheet() { const fn = sheetClose; sheetClose = null; if (fn) fn(); $("sheet-root").innerHTML = ""; }
+
+// ---------------- Developer mode guide ----------------
+function viewGuide() {
+  const profiles = (state.info?.profiles || []).filter((p) => p.id !== "samsung-old");
+  const steps = (list) => `<ol class="howto">${list.map((x) => `<li><span>${x}</span></li>`).join("")}</ol>`;
+  $("view").innerHTML = `<h2>Turn on developer mode</h2>
+    <p class="lede">Each TV or box needs it once, so this phone can install apps and change settings over Wi-Fi. Nothing on the TV is changed until you start setup.</p>
+    ${profiles.map((p) => { const g = GUIDES[p.id] || GUIDES.androidtv; return `<details class="help"><summary><span class="glyph">${esc(GLYPH[p.id] || "TV")}</span>${esc(p.label)}</summary><div class="inner">
+      ${steps(g.steps)}${(g.more || []).map((m) => `<p class="small"><b>${esc(m.title)}</b></p>${steps(m.steps)}`).join("")}
+      ${g.tips?.length ? `<p class="small"><b>Not working?</b></p><ul>${g.tips.map((t) => `<li>${t}</li>`).join("")}</ul>` : ""}
+      <p class="small muted">Find the IP: ${g.ip}</p></div></details>`; }).join("")}
+    <details class="help"><summary><span class="glyph">Sa</span>Older Samsung (2011 to 2017)</summary><div class="inner">
+      <p class="small muted">Nuvio can't run on these, so there's nothing for this app to install. A streaming stick on the TV's HDMI port gets you Nuvio instead. For other apps:</p>
+      <p class="small"><b>2015 to 2017 (Tizen)</b></p>${steps(GUIDES.samsung.steps.slice(0, 3))}
+      ${Object.values(ORSAY).map((o) => `<p class="small"><b>${esc(o.label)}</b></p>${steps(o.steps)}`).join("")}
+      <p class="small muted">2011 to 2014 sets load apps with User App Sync from a computer on the same Wi-Fi that serves <b>widgetlist.xml</b> on port 80. Phones can't serve on port 80, so this app can't run the sync.</p>
+    </div></details>`;
+  setDock("", "", null);
+}
+
+// ---------------- Older Samsung ----------------
+function viewOldSamsung() {
+  const old = state.old || (state.old = { model: "", year: 0 });
+  $("view").innerHTML = `<h2>Older Samsung</h2>
+    <p class="lede">Find the model number on the sticker on the back, or under Menu → Support → Contact Samsung (Settings → Support → About This TV on newer sets).</p>
+    <label class="field"><span>Model number</span><input type="text" id="old-model" autocapitalize="characters" autocomplete="off" placeholder="UN46F6400" value="${esc(old.model || "")}"></label>
+    <p class="small muted" style="margin-top:-6px">Or pick the year:</p>
+    <div class="chips">${[2011, 2012, 2013, 2014, 2015, 2016, 2017].map((y) => `<button class="chip ${old.age?.year === y ? "on" : ""}" data-year="${y}">${y}</button>`).join("")}<button class="chip" data-year="2018">2018 or newer</button></div>
+    <div id="old-body">${old.age ? oldSamsungBody(old, old.age) : ""}</div>`;
+  const decode = async (patch) => {
+    Object.assign(old, patch);
+    old.age = await invoke("samsung:year", { model: old.model, year: patch.year || 0 }).catch(() => null);
+    if (old.age?.year >= 2018) { go("connect", { target: { profile: "samsung", ip: old.ip || "" } }, true); return; }
+    viewOldSamsung();
+  };
+  $("old-model").addEventListener("change", (e) => decode({ model: e.target.value.trim(), year: 0 }));
+  document.querySelectorAll("[data-year]").forEach((el) => el.onclick = () => decode({ year: Number(el.dataset.year) }));
+  if (!old.age && !old.tried && (old.model || old.year)) { old.tried = true; decode({ year: old.year || 0 }); }
+  bindOldSamsung();
+  if (old.age?.year && !old.age.supported) setDock("Set up a stick", "Fire TV Stick or onn box for this TV", () => go("pick"), { pulse: true });
+  else setDock("Check", "Works out the TV's year", () => decode({ model: $("old-model").value.trim(), year: 0 }));
+}
+
+function oldSamsungBody(old, age) {
+  if (!age?.year) return old.legacy
+    ? `<div class="verdict warn"><b>A Samsung from 2015 or earlier</b><span class="small muted">It answers on the old remote-control port only. Enter the model number or pick the year above.</span></div>`
+    : (old.model ? `<div class="verdict warn"><b>Couldn't read that model number</b><span class="small muted">Check the sticker again, or pick the year above.</span></div>` : "");
+  const gen = age.generation;
+  const why = gen === "orsay"
+    ? "It runs Samsung's Smart Hub from before Tizen. Its apps are old web widgets, and Nuvio has never been built for it."
+    : "Developer mode works on it, but Nuvio needs Tizen 4 (2018) or newer. The Nuvio Legacy developer has a Tizen 3 test build that isn't released, because it doesn't run well yet.";
+  const series = gen === "orsay" ? ({ 2011: "D", 2012: "E", 2013: "F", 2014: "H" }[age.year] || "F") : "";
+  return `<div class="verdict warn"><b>${age.year}${age.sure ? "" : "?"} Samsung, ${esc(age.os)}: Nuvio can't run on it</b><span class="small muted">${why}</span></div>
+    <h3>Do this instead: a streaming stick</h3>
+    <p class="small muted" style="margin-top:-4px">Plug one into a free HDMI port. This app then sets it up like any other TV: Nuvio, the clean home screen and the ad clean-up.</p>
+    <div class="group">${STICKS.map(([t, d]) => `<div class="opt"><span><span class="t">${esc(t)}</span><span class="d">${esc(d)}</span></span></div>`).join("")}</div>
+    <h3>On the Samsung</h3>
+    <ol class="howto">${(OLD_SAMSUNG_TV[gen] || OLD_SAMSUNG_TV.orsay).map((t) => `<li><span>${t}</span></li>`).join("")}</ol>
+    <details class="help"><summary>Developer mode on this TV, for other apps</summary><div class="inner">
+      ${gen === "orsay" ? `<ol class="howto">${ORSAY[series].steps.map((x) => `<li><span>${x}</span></li>`).join("")}</ol>
+        <p class="small muted">These are the steps for ${esc(ORSAY[series].label)} sets. User App Sync loads apps from a computer on the same Wi-Fi that serves <b>widgetlist.xml</b> on port 80, which phones can't do. If the <b>develop</b> login fails, Samsung's old login servers may be refusing it; a factory reset (Support → Self Diagnosis → Reset) before updating the firmware sometimes helps.</p>`
+      : `<ol class="howto">${GUIDES.samsung.steps.slice(0, 3).map((x) => `<li><span>${x}</span></li>`).join("")}</ol><p class="small muted">The menus match newer Samsungs. It's only useful for apps built for Tizen ${esc((age.os.match(/[\d.]+/) || [""])[0])}.</p>`}
+    </div></details>`;
+}
+function bindOldSamsung() {}
 
 // ---------------- Running ----------------
 async function startRun() {
@@ -619,6 +801,7 @@ async function openSettings() {
     <h3>Samsung certificate</h3><p class="small muted">Back it up so a new phone can update Samsung TVs without signing in again.</p>
     <label class="field"><span>Backup password</span><input type="password" id="cert-pass"></label>
     <div class="row"><button class="btn" id="cert-export">Back up</button><button class="btn" id="cert-import">Restore</button></div>
+    <h3>Help</h3><button class="key" id="guide-open"><span class="grow"><span class="title">How to turn on developer mode</span><span class="sub">Samsung, LG, Android TV, Shield, onn, Sony, Fire TV, older Samsung</span></span><span class="chev">›</span></button>
     <h3>About</h3><p class="small muted">TV Setup ${esc(state.info.version)}. Horizon Home from Horizon Home Kit (MIT). Debloat lists and minimal home screen from CleanYourTV (MIT, ${esc(state.info.lists.count)} tested lists). Nuvio Legacy by iqui27. Nuvio by NuvioMedia. <a class="link" href="legacy-installer.html?t=${encodeURIComponent(token)}">Old Samsung installer</a></p>`, () => {});
   const save = async () => { state.info.settings = await invoke("settings:set", { autoPrepare: document.querySelector('[name="set-auto"]').checked, prepareAllPlatforms: document.querySelector('[name="set-all"]').checked }); };
   document.querySelector('[name="set-auto"]').onchange = save; document.querySelector('[name="set-all"]').onchange = save;
@@ -627,6 +810,7 @@ async function openSettings() {
     toast("Saved");
   };
   ["hz-name", "hz-tmdb", "hz-livetv", "hz-ndid", "hz-ndkey"].forEach((id) => $(id).addEventListener("change", saveHorizon));
+  $("guide-open").onclick = () => { closeSheet(); go("guide"); };
   $("prep-now").onclick = () => { closeSheet(); prepare(true); };
   $("clear").onclick = async () => { await invoke("storage:clear"); toast("Downloads cleared"); closeSheet(); };
   $("cert-export").onclick = async () => {
