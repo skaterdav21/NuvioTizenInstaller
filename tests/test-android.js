@@ -68,8 +68,12 @@ function fakeApk(dir, name, pkg) {
   assert.ok(tv.disabled.has("com.nvidia.stats"), "telemetry disabled");
   assert.strictEqual(tv.settings.window_animation_scale, "0.5");
   assert.ok(state.commands.some((c) => c.includes("content write --uri content://com.gathin.tvhome.theme/config.json")), "dock config pushed");
-  const dock = JSON.parse(state.files["/data/local/tmp/tvsetup-config.json"].toString());
+  const dock = JSON.parse(state.files["/data/local/tmp/tvsetup-look-config.json"].toString());
   assert.strictEqual(dock.dock_apps[0], "com.nuvio.tv", "Nuvio first in the dock");
+  assert.strictEqual(dock.cinematic_home, true, "Nuvio Cinema look applied by default");
+  assert.ok(state.commands.some((c) => c.includes("content write --uri content://com.gathin.tvhome.theme/wallpapers/")), "wallpapers pushed");
+  assert.ok(state.commands.some((c) => c.includes("theme_revision")), "theme revision bumped");
+  assert.ok(state.commands.some((c) => c.includes("am force-stop com.gathin.tvhome")), "home restarted");
 
   // Undo
   const undoJob = jobs.createJob("Undo", [{ id: "connect", label: "c" }, { id: "packages", label: "p" }, { id: "home", label: "h" }, { id: "settings", label: "s" }]);

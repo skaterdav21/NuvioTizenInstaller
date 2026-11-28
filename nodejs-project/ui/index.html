@@ -24,6 +24,22 @@
     --pad: 18px;
     --font: "Archivo", system-ui, -apple-system, "Roboto", sans-serif;
   }
+  .looks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 6px 12px 12px; }
+  .look { background: #0008; border: 2px solid transparent; border-radius: 14px; overflow: hidden; text-align: left; padding: 0; cursor: pointer; }
+  .look img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: #000; }
+  .look b { display: flex; align-items: center; gap: 6px; padding: 8px 10px 9px; font-size: 14px; }
+  .look.on { border-color: var(--blue); box-shadow: 0 0 0 3px #3e7bfa33; }
+  .look .oled { font-size: 10px; letter-spacing: .06em; color: var(--muted); border: 1px solid var(--edge); border-radius: 6px; padding: 1px 5px; margin-left: auto; }
+  .look-desc { padding: 0 16px 12px; font-size: 13px; color: var(--muted); }
+  .maprow { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+  .maprow + .maprow { border-top: 1px solid #ffffff0d; }
+  .maprow .grow { flex: 1; min-width: 0; }
+  .maprow .x { background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer; padding: 0 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 16px 12px; }
+  .listen { text-align: center; padding: 26px 10px; }
+  .listen .ring { width: 74px; height: 74px; border-radius: 50%; margin: 0 auto 14px; border: 3px solid var(--blue); animation: ring 1.2s ease-in-out infinite; }
+  @keyframes ring { 0%, 100% { transform: scale(.9); opacity: .6 } 50% { transform: scale(1.05); opacity: 1 } }
+  body.oled { --body: #000; --key: #121418; --key-hi: #1b1e24; --edge: #2a2e36; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--body); color: var(--text); font-family: var(--font); font-size: 16px; line-height: 1.45; }
   body { min-height: 100vh; padding-bottom: calc(118px + env(safe-area-inset-bottom)); }
@@ -159,6 +175,8 @@
   .pkg input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--blue); flex: none; }
   .pkg code { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
   .pkg .note { font-size: 12px; color: var(--muted); display: block; }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .tips code { word-break: break-all; font-size: 12px; }
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--edge); background: var(--key); cursor: pointer; font-weight: 650; }
   .btn.full { width: 100%; }
   .btn.danger { color: #ff8a8d; }
@@ -524,6 +542,11 @@ function viewPlan() {
     const styleOptions = canHome && s.isFire ? radio("style", "clean", "clean", "Minimal (CleanYourTV)", "Your apps in a tidy grid with Nuvio first. Horizon Home isn't offered on Fire TV.", true) : canHome ? radio("style", "horizon", c.homeStyle, "Horizon Home", `Artwork backdrop, Nuvio's Continue Watching, a Live TV guide, memory and weather in the top bar. About 160 MB.${c.nuvio === "nuvio-legacy-android" ? " Continue Watching needs the official Nuvio app." : ""}${!hz.tmdb ? " Add a TMDB key in Settings for artwork." : ""}`, rec.homeStyle === "horizon") +
       radio("style", "clean", c.homeStyle, "Minimal (CleanYourTV)", "Just your apps in a tidy grid with Nuvio first. Lightest on memory.", rec.homeStyle === "clean") : "";
     body += `<div class="group"><div class="head"><b>Home screen</b><span class="muted">no ads, Nuvio first</span></div>${styleOptions}${canHome ? `<div class="opt" style="padding-bottom:0"><span class="d">How it takes over Home</span></div>` : ""}${homeOptions}</div>`;
+    if (canHome && c.homeStyle === "clean" && c.homeMode !== "none") {
+      if (!c.look) c.look = "nuvio-cinema";
+      body += `<div class="group"><div class="head"><b>Look</b><span class="muted">wallpaper, dock and effects</span></div>${lookGallery(c.look)}
+        ${toggle("onstart", Boolean(c.openOnStart), "Open Nuvio when the TV turns on", "Home comes up first, then Nuvio opens once the internet is back. Back or Home still reach the home screen.")}</div>`;
+    }
     const d = s.debloat; const count = c.debloat.length;
     body += `<div class="group"><div class="head"><b>Ads, tracking & bloat</b></div>
       <div class="opt" id="review"><span class="grow"><span class="t">${count} of ${d.total} will be turned off</span>
@@ -531,6 +554,7 @@ function viewPlan() {
       ${d.total ? `<button class="link" id="review-btn">Review</button>` : ""}</div></div>`;
     body += `<div class="group">${hz.nextdnsId ? toggle("dns", c.dnsBlock, "Block ads in every app (NextDNS)", `Points the TV's private DNS at your NextDNS profile ${esc(hz.nextdnsId)}. Undo puts it back.`) : ""}${toggle("speed", c.speed, "Speed tweaks", "Quicker animations, and apps pre-compiled so they open faster.")}
       ${toggle("smarttube", c.smarttube, "Add SmartTube", "YouTube without ads, made for TV remotes.")}</div>`;
+    if (c.nuvio === "nuvio-legacy-android") body += nuvioTips();
     if (s.undoAvailable) body += `<button class="btn full" id="undo-btn">Undo earlier changes on this TV</button>`;
     if (s.adbOpenWithoutPrompt) body += `<p class="small" style="color:var(--yellow)">This TV lets any device on the network connect without asking. Turn off network debugging when you're done.</p>`;
   } else if (s.platform === "samsung" && s.tooOld) {
@@ -543,7 +567,7 @@ function viewPlan() {
       <label class="opt"><span class="grow"><span class="t">TV generation</span><span class="d">Picked from the model. Change it if setup says the build doesn't fit.</span>
       <select id="variant" style="margin-top:10px">${Object.entries(s.variants).map(([v, l]) => `<option value="${v}" ${c.legacyVariant === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></span></label></div>
       <p class="small muted">${s.certificateSaved ? "A Samsung certificate is saved on this phone, so sign-in should be skipped." : "First time on this TV: you'll sign in to a Samsung account once, in Chrome. The certificate is saved for future updates."}</p>
-      ${checklist("samsung")}`;
+      ${quickAccess("samsung")}${nuvioTips()}${checklist("samsung")}`;
   } else if (s.platform === "lg") {
     body += `<div class="group"><div class="head"><b>Nuvio Legacy</b>${s.installed.nuvioVersion ? `<span class="muted">installed: ${esc(s.installed.nuvioVersion)}</span>` : ""}</div>
       ${radio("lgvar", "default", c.nuvio, "Standard build", "Right for most LG TVs.", true)}
@@ -558,6 +582,7 @@ function viewPlan() {
         <li><span>Press <b>Home</b>, open the app list's <b>Edit</b> mode, and move <b>TV Home</b> to the first spot.</span></li>
         <li><span>Open <b>TV Home</b>, then <b>hold the 1 key</b> on the remote and choose <b>Register</b> (Quick Access). From then on, holding 1 opens it from anywhere.</span></li>
         <li><span>Settings → General → System → Additional Settings → Home Settings: turn off <b>Home Auto Launch</b> so LG's home doesn't pop up at power-on.</span></li></ol>`}
+      ${nuvioTips()}
       <p class="small muted">LG ends Developer Mode after about 50 hours unless it's extended. Apps like Nuvio and TV Home stop opening when it lapses, so this app extends it for this TV every time you open it.</p>
       ${checklist("lg")}`;
   }
@@ -565,6 +590,24 @@ function viewPlan() {
   bindPlan();
   setDock("Start setup", s.platform === "android" ? estimate() : "About 2 to 4 minutes", startRun, { pulse: true });
 }
+
+const ENGLISH_FIRST = "^(?!.*\\b(ITA|ITALIAN|FRE|FRENCH|TRUEFRENCH|VFF|VOSTFR|GER|GERMAN|DEU|SPA|ESP|SPANISH|LATINO|CASTELLANO|RUS|RUSSIAN|HIN|HINDI|TAM|TAMIL|TEL|TELUGU|KOR|KOREAN|JPN|POR|PT-?BR|DUBLADO|POL|POLISH|TUR|TURKISH|ARA|ARABIC|CHI|CHINESE|UKR|CZE|HUN|NL|DUTCH)\\b)";
+function quickAccess(kind) {
+  if (kind !== "samsung") return "";
+  return `<h3>Make Nuvio one press away</h3><p class="small muted">Samsung remotes' Netflix and Prime buttons can't be reassigned, so these get closest.</p>
+    <ol class="howto">
+      <li><span>Press <b>Home</b>, highlight <b>Nuvio</b>, press <b>Down</b> (or hold OK) and choose <b>Move</b>. Put it first in the bar.</span></li>
+      <li><span>Settings → General → Smart Features: turn on <b>Autorun Last App</b>. If Nuvio was on when the TV went off, it comes back in Nuvio.</span></li>
+      <li><span>Same page: turn off <b>Autorun Smart Hub</b>, so the Home bar doesn't pop up over it at power-on.</span></li></ol>`;
+}
+function nuvioTips() {
+  return `<h3>Recommended Nuvio settings</h3><p class="small muted">Set these in Nuvio's own Settings with the remote. They fix the wrong-episode autoplay and foreign-language picks in Nuvio Legacy 2.0.8.</p>
+    <ol class="howto tips">
+      <li><span><b>Preload video</b>: Off, and <b>Prepare the source when a title opens</b>: Off. Turn them back on after the next Nuvio update.</span></li>
+      <li><span><b>Audio language</b>: English, and turn on <b>Prefer audio language</b>.</span></li>
+      <li><span><b>Source filters → Filter sources by name (regex)</b>: set to <b>Prefer</b> and enter this pattern. <button class="link" id="copy-regex">Copy</button><br><code>${esc(ENGLISH_FIRST)}</code></span></li></ol>`;
+}
+document.addEventListener("click", (e) => { if (e.target.id === "copy-regex") { bridge?.copyText(ENGLISH_FIRST); toast("Pattern copied"); } });
 
 function checklist(kind) {
   return `<h3>Turn off ads in the TV's settings</h3><p class="small muted">This TV doesn't let apps change these, so here's where they are. Two minutes with the remote.</p>
@@ -594,6 +637,8 @@ function bindPlan() {
   { const el = document.querySelector('input[name="lgboot"]'); if (el) el.onchange = () => { c.bootHome = el.checked; }; }
   const bindToggle = (name, key) => { const el = document.querySelector(`input[name="${name}"]`); if (el) el.onchange = () => { c[key] = el.checked; }; };
   bindToggle("speed", "speed"); bindToggle("smarttube", "smarttube"); bindToggle("replace", "replaceIncompatible"); bindToggle("dns", "dnsBlock");
+  bindLooks((id) => { c.look = id; render(); });
+  { const el = document.querySelector('input[name="onstart"]'); if (el) el.onchange = () => { c.openOnStart = el.checked ? (c.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv") : ""; }; }
   $("variant")?.addEventListener("change", (e) => { c.legacyVariant = e.target.value; });
   $("review-btn")?.addEventListener("click", openReview);
   $("undo-btn")?.addEventListener("click", startUndo);
@@ -892,10 +937,118 @@ function openDevice(id) {
   openSheet(`<h2>${esc(d.name)}</h2><p class="lede">${esc(d.ip)}, ${esc(d.os || d.platform)}</p>
     <button class="key" id="dv-setup"><span class="grow"><span class="title">${d.lastSetup ? "Update Nuvio and re-run setup" : "Set up this TV"}</span><span class="sub">Connects, then shows the plan before changing anything</span></span><span class="chev">›</span></button>
     ${d.platform === "android" ? `<button class="key" id="dv-open"><span class="grow"><span class="title">Open Nuvio on the TV</span></span><span class="chev">›</span></button>` : ""}
+    ${d.platform === "android" && (d.home || d.choices?.homeStyle === "clean") ? `<h3>Home screen</h3>
+      <button class="key" id="dv-look"><span class="glyph">Lk</span><span class="grow"><span class="title">Look</span><span class="sub">${esc(lookName(d.home?.look) || "Plain")}</span></span><span class="chev">›</span></button>
+      <button class="key" id="dv-keys"><span class="glyph">Bt</span><span class="grow"><span class="title">Remote buttons</span><span class="sub">${(d.home?.buttons || []).length ? `${d.home.buttons.length} mapped` : "Make a spare button open Nuvio"}</span></span><span class="chev">›</span></button>
+      <button class="key" id="dv-start"><span class="glyph">On</span><span class="grow"><span class="title">When the TV turns on</span><span class="sub">${d.home?.openOnStart ? `Opens ${esc(appName(d.home.openOnStart))}` : "Shows the home screen"}</span></span><span class="chev">›</span></button>` : ""}
     <div style="height:8px"></div><button class="btn full danger" id="dv-remove">Forget this TV</button>`);
   $("dv-setup").onclick = () => { closeSheet(); go("connect", { target: { profile: d.profile, ip: d.ip, passphrase: "" } }); setTimeout(connectNow, 50); };
   $("dv-open")?.addEventListener("click", async () => { try { await invoke("device:launch", { ip: d.ip, pkg: d.choices?.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv" }); toast("Opening on the TV"); } catch (e) { toast(e.message); } closeSheet(); });
   $("dv-remove").onclick = async () => { await invoke("device:remove", id); closeSheet(); await refreshInfo(); render(); };
+  $("dv-look")?.addEventListener("click", () => { closeSheet(); openLookSheet(d); });
+  $("dv-keys")?.addEventListener("click", () => { closeSheet(); openButtonsSheet(d); });
+  $("dv-start")?.addEventListener("click", () => { closeSheet(); openStartSheet(d); });
+}
+
+// ---------------- Android home screen: looks, remote buttons, power-on app ----------------
+const APP_NAMES = { "com.nuvio.tv": "Nuvio", "space.nuvio.nativelegacy": "Nuvio Legacy", "com.teamsmart.videomanager.tv": "SmartTube", "com.google.android.youtube.tv": "YouTube", "com.plexapp.android": "Plex", "com.netflix.ninja": "Netflix" };
+function appName(pkg) { return APP_NAMES[pkg] || (state.apps || []).find((a) => a.pkg === pkg)?.label || state.actions?.[pkg] || pkg; }
+function lookName(id) { return (state.looks || []).find((l) => l.id === id)?.name || (id ? id : ""); }
+async function ensureLooks() {
+  if (state.looks) return state.looks;
+  try { state.looks = await invoke("home:looks"); } catch { state.looks = []; }
+  if (state.view === "plan") render();
+  return state.looks;
+}
+function lookGallery(current) {
+  if (!state.looks) { ensureLooks(); return `<p class="small muted" style="padding:0 16px">Loading looks…</p>`; }
+  if (!state.looks.length) return "";
+  const cur = state.looks.find((l) => l.id === current) || state.looks[0];
+  return `<div class="looks">${state.looks.map((l) => `<button class="look ${l.id === cur.id ? "on" : ""}" data-look="${esc(l.id)}">
+      <img src="looks/${esc(l.id)}.jpg" alt="" loading="lazy" onerror="this.style.visibility='hidden'"><b>${esc(l.name)}${l.oled ? `<span class="oled">OLED</span>` : ""}</b></button>`).join("")}</div>
+    <div class="look-desc">${esc(cur.desc)}${cur.pictures > 1 ? ` ${cur.pictures} pictures.` : ""}</div>`;
+}
+function bindLooks(onPick) { document.querySelectorAll("[data-look]").forEach((el) => el.onclick = (e) => { e.preventDefault(); onPick(el.dataset.look); }); }
+
+async function applyHome(d, patch, title) {
+  try {
+    const { jobId } = await invoke("home:apply", { ip: d.ip, deviceKey: d.id, ...patch });
+    state.log = []; state.job = { id: jobId, status: "running", steps: [], title };
+    keepAwake(true); go("run");
+  } catch (e) { toast(e.message, 5000); }
+}
+
+async function openLookSheet(d) {
+  await ensureLooks();
+  let pick = d.home?.look || "nuvio-cinema";
+  const draw = () => {
+    openSheet(`<h2>Look</h2><p class="lede">Pictures and settings go to the TV once; changing later takes about a minute.</p>
+      <div class="group" style="padding-top:8px">${lookGallery(pick)}</div>
+      <button class="btn full primary" id="look-apply">${pick === d.home?.look ? "Send again" : "Use this look"}</button>`);
+    bindLooks((id) => { pick = id; draw(); });
+    $("look-apply").onclick = () => { closeSheet(); applyHome(d, { look: pick }, "Changing the look"); };
+  };
+  draw();
+}
+
+async function loadTargets(d) {
+  if (!state.actions) state.actions = await invoke("home:actions").catch(() => ({}));
+  if (!state.apps || state.appsIp !== d.ip) { state.apps = await invoke("home:apps", { ip: d.ip }); state.appsIp = d.ip; }
+}
+
+async function openButtonsSheet(d) {
+  let buttons = [...(d.home?.buttons || [])];
+  const draw = () => {
+    openSheet(`<h2>Remote buttons</h2><p class="lede">Turn a button you never use (YouTube, Netflix, a colour key, the mic) into a shortcut. A tap and a hold can do different things.</p>
+      <div class="group">${buttons.length ? buttons.map((b, i) => `<div class="maprow"><span class="grow"><b>${esc(b.name || `Button ${b.code}`)}</b> ${b.press === "hold" ? "(hold)" : ""}<br><span class="small muted">opens ${esc(appName(b.target))}</span></span><button class="x" data-del="${i}" aria-label="Remove">×</button></div>`).join("")
+        : `<div class="opt"><span class="d">No buttons mapped yet.</span></div>`}</div>
+      <div class="row"><button class="btn" id="btn-add">Add a button</button><button class="btn primary" id="btn-save">Save to the TV</button></div>
+      <p class="small muted">Arrows, OK, Back, Home, power and volume always keep their normal jobs.</p>`);
+    document.querySelectorAll("[data-del]").forEach((el) => el.onclick = () => { buttons.splice(Number(el.dataset.del), 1); draw(); });
+    $("btn-add").onclick = learn;
+    $("btn-save").onclick = () => { closeSheet(); applyHome(d, { buttons }, "Mapping remote buttons"); };
+  };
+  const learn = async () => {
+    openSheet(`<div class="listen"><div class="ring"></div><h2>Press the button now</h2><p class="lede">On the TV's remote, aimed at the TV. Listening for 12 seconds.</p></div>`);
+    let found;
+    try { [found] = await Promise.all([invoke("home:learn", { ip: d.ip }), loadTargets(d)]); }
+    catch (e) { toast(e.message, 5000); draw(); return; }
+    if (found.protected) { toast(`That's ${found.name}. It's needed to move around, so it can't be changed.`, 5000); draw(); return; }
+    choose(found);
+  };
+  const choose = (found) => {
+    let press = "tap";
+    let target = d.choices?.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv";
+    const targets = [...state.apps.map((a) => [a.pkg, a.label]), ...Object.entries(state.actions)];
+    const drawChoose = () => {
+      openSheet(`<h2>${esc(found.name)}</h2><p class="lede">What should it do?</p>
+        <div class="chips">${["tap", "hold"].map((p) => `<button class="chip ${press === p ? "on" : ""}" data-press="${p}">${p === "tap" ? "When pressed" : "When held"}</button>`).join("")}</div>
+        <div class="group">${targets.map(([v, l]) => radio("target", v, target, l, "")).join("")}</div>
+        <button class="btn full primary" id="map-done">Add</button>`);
+      document.querySelectorAll("[data-press]").forEach((el) => el.onclick = () => { press = el.dataset.press; drawChoose(); });
+      document.querySelectorAll('input[name="target"]').forEach((el) => el.onchange = () => { target = el.value; });
+      $("map-done").onclick = () => {
+        buttons = buttons.filter((b) => !(b.code === found.code && (b.press || "tap") === press));
+        buttons.push({ code: found.code, name: found.name, press, target });
+        draw();
+      };
+    };
+    drawChoose();
+  };
+  draw();
+}
+
+async function openStartSheet(d) {
+  try { await loadTargets(d); } catch (e) { toast(e.message, 5000); return; }
+  let app = d.home?.openOnStart || "";
+  let wake = Boolean(d.home?.openOnWake);
+  openSheet(`<h2>When the TV turns on</h2><p class="lede">Open an app instead of staying on Home. It waits for the internet first, and Back or Home still reach the home screen.</p>
+    <div class="group">${radio("start", "", app, "Show the home screen", "")}${state.apps.map((a) => radio("start", a.pkg, app, a.label, "")).join("")}</div>
+    <div class="group">${toggle("wake", wake, "Also when the screen wakes up", "For TVs whose remote only puts them to sleep, so they never really restart.")}</div>
+    <button class="btn full primary" id="start-save">Save to the TV</button>`);
+  document.querySelectorAll('input[name="start"]').forEach((el) => el.onchange = () => { app = el.value; });
+  document.querySelector('input[name="wake"]').onchange = (e) => { wake = e.target.checked; };
+  $("start-save").onclick = () => { closeSheet(); applyHome(d, { openOnStart: app, openOnWake: wake }, "Setting the power-on app"); };
 }
 
 // ---------------- Settings ----------------
@@ -914,6 +1067,9 @@ async function openSettings() {
     <label class="field"><span>Live TV addon link (for the TV guide)</span><input type="text" id="hz-livetv" autocomplete="off" placeholder="https://…workers.dev/…" value="${esc(s.horizon?.livetv || "")}"></label>
     <label class="field"><span>NextDNS profile ID (optional, ad blocking)</span><input type="text" id="hz-ndid" autocomplete="off" value="${esc(s.horizon?.nextdnsId || "")}"></label>
     <label class="field"><span>NextDNS API key (optional, "ads blocked today" counter)</span><input type="password" id="hz-ndkey" autocomplete="off" value="${esc(s.horizon?.nextdnsKey || "")}"></label>
+    <h3>Look of this app</h3><div class="group">${toggle("set-oled", s.oledUi, "Pure black (OLED)", "True black backgrounds, easier on OLED phones at night.")}</div>
+    <h3>Your TVs and settings</h3><p class="small muted">Saved TVs, their home screen choices, Horizon keys and the Orsay relay, in one file. Restore it on a new phone, then restore the Samsung certificate below.</p>
+    <div class="row"><button class="btn" id="bk-export">Back up</button><button class="btn" id="bk-import">Restore</button></div>
     <h3>Samsung certificate</h3><p class="small muted">Back it up so a new phone can update Samsung TVs without signing in again.</p>
     <label class="field"><span>Backup password</span><input type="password" id="cert-pass"></label>
     <div class="row"><button class="btn" id="cert-export">Back up</button><button class="btn" id="cert-import">Restore</button></div>
@@ -921,6 +1077,14 @@ async function openSettings() {
     <h3>About</h3><p class="small muted">TV Setup ${esc(state.info.version)}. Horizon Home from Horizon Home Kit (MIT). Debloat lists and minimal home screen from CleanYourTV (MIT, ${esc(state.info.lists.count)} tested lists). Nuvio Legacy by iqui27. Nuvio by NuvioMedia. <a class="link" href="legacy-installer.html?t=${encodeURIComponent(token)}">Old Samsung installer</a></p>`, () => {});
   const save = async () => { state.info.settings = await invoke("settings:set", { autoPrepare: document.querySelector('[name="set-auto"]').checked, prepareAllPlatforms: document.querySelector('[name="set-all"]').checked }); };
   document.querySelector('[name="set-auto"]').onchange = save; document.querySelector('[name="set-all"]').onchange = save;
+  document.querySelector('[name="set-oled"]').onchange = async (e) => { state.info.settings = await invoke("settings:set", { oledUi: e.target.checked }); document.body.classList.toggle("oled", e.target.checked); };
+  $("bk-export").onclick = async () => {
+    try { const r = await invoke("backup:export"); if (bridge) bridge.saveFile(r.fileName, r.text); toast(`Saved ${r.fileName} to Downloads`); } catch (e) { toast(e.message, 5000); }
+  };
+  $("bk-import").onclick = async () => {
+    const file = await pickFile(".json,application/json"); if (!file) return;
+    try { const r = await invoke("backup:import", await file.text()); await refreshInfo(); closeSheet(); render(); toast(`Restored ${r.devices} TV(s) and settings`); } catch (e) { toast(e.message, 5000); }
+  };
   const saveHorizon = async () => {
     state.info.settings = await invoke("settings:set", { horizon: { name: $("hz-name").value.trim(), tmdb: $("hz-tmdb").value.trim(), livetv: $("hz-livetv").value.trim(), nextdnsId: $("hz-ndid").value.trim(), nextdnsKey: $("hz-ndkey").value.trim() } });
     toast("Saved");
@@ -951,6 +1115,7 @@ async function refreshInfo() { state.info = await invoke("app:info"); }
 (async () => {
   connectEvents();
   try { await refreshInfo(); } catch (e) { toast(e.message); }
+  document.body.classList.toggle("oled", Boolean(state.info?.settings?.oledUi));
   render();
   if (state.info?.settings?.autoPrepare) setTimeout(() => prepare(false), 2500);
   if (state.info?.devices?.some((d) => d.platform === "lg")) invoke("lg:extendAll").catch(() => {});

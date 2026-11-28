@@ -5,3 +5,5 @@ out/
 unsigned.apk
 uber.jar
 nodejs-project/bundled/*.apk
+nodejs-project/bundled/themes/
+nodejs-project/ui/looks/

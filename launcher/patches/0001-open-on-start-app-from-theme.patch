@@ -1,0 +1,124 @@
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/HomeKeyService.java b/launcher/app/src/main/java/com/gathin/tvhome/HomeKeyService.java
+index 405f240..3eaf989 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/HomeKeyService.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/HomeKeyService.java
+@@ -212,7 +212,7 @@ public class HomeKeyService extends AccessibilityService {
+         // power_on_home, off by default. Not with boot_to_live_tv, or with Live TV picked as the Open on start app:
+         // those open Live TV on purpose at boot.
+         String openOnStart = config.openOnStartChoice
+-                ? getSharedPreferences(Config.SETTINGS_NAME, MODE_PRIVATE).getString(OpenOnStart.KEY, "") : "";
++                ? OpenOnStart.picked(this) : "";
+         powerOnLiveTv = config.powerOnHome && !config.bootToLiveTv && !config.liveTvPackage.equals(openOnStart)
+                 ? config.liveTvPackage : "";
+         powerOnAlways = config.powerOnHomeAlways && !config.bootToLiveTv && openOnStart.isEmpty();
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/LauncherSettingsActivity.java b/launcher/app/src/main/java/com/gathin/tvhome/LauncherSettingsActivity.java
+index 60ea401..ab59fe4 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/LauncherSettingsActivity.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/LauncherSettingsActivity.java
+@@ -234,7 +234,7 @@ public final class LauncherSettingsActivity extends Activity {
+         Collections.sort(apps, (a, b) -> a[0].compareToIgnoreCase(b[0]));
+         String[] labels = new String[apps.size() + 1];
+         labels[0] = getString(R.string.off);
+-        String current = choices.getString(OpenOnStart.KEY, "");
++        String current = OpenOnStart.picked(this);
+         int checked = 0;
+         for (int i = 0; i < apps.size(); i++) {
+             labels[i + 1] = apps.get(i)[0];
+@@ -244,7 +244,7 @@ public final class LauncherSettingsActivity extends Activity {
+                 .setTitle(R.string.open_on_start_label)
+                 .setSingleChoiceItems(labels, checked, (dialog, which) -> {
+                     dialog.dismiss();
+-                    if (which == 0) choices.edit().remove(OpenOnStart.KEY).apply();
++                    if (which == 0) choices.edit().putString(OpenOnStart.KEY, "").apply();  // TV Setup: Off sticks over the theme's app
+                     else {
+                         OpenOnStart.skipThisBoot(this);
+                         choices.edit().putString(OpenOnStart.KEY, apps.get(which - 1)[1]).apply();
+@@ -257,7 +257,7 @@ public final class LauncherSettingsActivity extends Activity {
+ 
+     /** The picked app's name, its package when it is gone, or Off. */
+     private String openOnStartLabel() {
+-        String pkg = choices.getString(OpenOnStart.KEY, "");
++        String pkg = OpenOnStart.picked(this);
+         if (pkg.isEmpty()) return getString(R.string.off);
+         try {
+             PackageManager pm = getPackageManager();
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
+index d92b9d6..b887062 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/MainActivity.java
+@@ -3258,8 +3258,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+      *  low-memory TV the app can push the launcher out of memory, and an apply() still in flight was lost then, so
+      *  every Home press opened the app again. */
+     private boolean openLiveTvAfterBoot() {
+-        String app = openOnStartChoice ? getSharedPreferences(Config.SETTINGS_NAME, MODE_PRIVATE)
+-                .getString(OpenOnStart.KEY, "") : "";
++        String app = openOnStartChoice ? OpenOnStart.picked(this) : "";
+         if (!bootToLiveTv && app.isEmpty()) return false;
+         int boot = OpenOnStart.boot(this);
+         SharedPreferences prefs = getSharedPreferences(OpenOnStart.BOOT_PREFS, MODE_PRIVATE);
+@@ -3278,7 +3277,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
+     /** open_on_start_on_wake: the remote's power button is a light sleep on some sets, with no boot for
+      *  openLiveTvAfterBoot to catch. */
+     private void openStartAppOnWake() {
+-        String app = getSharedPreferences(Config.SETTINGS_NAME, MODE_PRIVATE).getString(OpenOnStart.KEY, "");
++        String app = OpenOnStart.picked(this);
+         if (app.isEmpty() || app.equals(getPackageName())) return;
+         Intent i = OpenOnStart.intent(getPackageManager(), app);
+         if (i != null) openWhenReady(i);
+diff --git a/launcher/app/src/main/java/com/gathin/tvhome/OpenOnStart.java b/launcher/app/src/main/java/com/gathin/tvhome/OpenOnStart.java
+index 3bc5b12..568eb0c 100644
+--- a/launcher/app/src/main/java/com/gathin/tvhome/OpenOnStart.java
++++ b/launcher/app/src/main/java/com/gathin/tvhome/OpenOnStart.java
+@@ -2,12 +2,19 @@ package com.gathin.tvhome;
+ 
+ import android.content.Context;
+ import android.content.Intent;
++import android.content.SharedPreferences;
+ import android.content.pm.PackageManager;
+ import android.net.ConnectivityManager;
+ import android.net.Network;
+ import android.net.NetworkCapabilities;
+ import android.provider.Settings;
+ 
++import org.json.JSONObject;
++
++import java.io.File;
++import java.io.FileInputStream;
++import java.nio.charset.StandardCharsets;
++
+ /** open_on_start_choice: the app Home opens once after each boot, picked in Launcher settings. */
+ final class OpenOnStart {
+     /** The picked package in Config.SETTINGS_NAME; absent or empty means Off. */
+@@ -19,6 +26,32 @@ final class OpenOnStart {
+     private OpenOnStart() {
+     }
+ 
++    /** TV Setup: the theme's `open_on_start_app` names the app when nothing was picked on the TV, so the phone can
++     *  set it. A pick on the TV, Off included (stored as ""), wins until Follow theme clears it. */
++    static final String THEME_KEY = "open_on_start_app";
++
++    static String picked(Context ctx) {
++        SharedPreferences choices = ctx.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE);
++        if (choices.contains(KEY)) return choices.getString(KEY, "");
++        return themeApp(ctx);
++    }
++
++    static String themeApp(Context ctx) {
++        try {
++            File dir = Config.dir(ctx);
++            File f = dir == null ? null : new File(dir, Config.FILE_NAME);
++            if (f == null || !f.isFile() || f.length() > 64 * 1024) return "";
++            byte[] b = new byte[(int) f.length()];
++            try (FileInputStream in = new FileInputStream(f)) {
++                int n = 0;
++                while (n < b.length) { int r = in.read(b, n, b.length - n); if (r < 0) break; n += r; }
++            }
++            return new JSONObject(new String(b, StandardCharsets.UTF_8)).optString(THEME_KEY, "").trim();
++        } catch (Exception e) {
++            return "";
++        }
++    }
++
+     /** Whether the first Home of this boot opens {@code pkg}: a known boot not handled yet, and an app that is not
+      *  the launcher itself (which would only reopen Home). */
+     static boolean due(int boot, int handledBoot, String pkg, String self) {

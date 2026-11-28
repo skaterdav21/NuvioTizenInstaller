@@ -47,6 +47,9 @@ jobs:
           git fetch -q --depth 1 origin "$CYT_COMMIT"
           git checkout -q FETCH_HEAD
 
+      - name: Bundle home screen looks
+        run: python3 scripts/bundle_looks.py cyt .
+
       - name: Regenerate debloat lists
         run: python3 scripts/gen_lists.py cyt nodejs-project/src/data/lists.json
 
@@ -69,6 +72,7 @@ jobs:
           node tests/test-samsung-year.js
           node tests/test-android-fire.js
           node tests/test-orsay.js
+          node tests/test-looks.js
 
       - name: Prepare signing key
         env:
@@ -87,6 +91,8 @@ jobs:
         env:
           KEYSTORE_PASS: ${{ secrets.SIGNING_PASSWORD }}
         run: |
+          # TV Setup's launcher patches (open_on_start_app, so the phone can pick the power-on app).
+          for p in launcher/patches/*.patch; do git -C cyt apply --verbose "../$p"; done
           cd cyt/launcher
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           ./gradlew assembleRelease -q --console=plain

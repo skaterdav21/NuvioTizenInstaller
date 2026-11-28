@@ -65,7 +65,7 @@ function fakeApk(dir, name, pkg) {
   assert.ok(tv.disabled.size > 10, `ads/bloat turned off (${tv.disabled.size})`);
   const debloatStep = final.steps.find((s) => s.id === "debloat");
   assert.ok(/^Turned off \d+, ?|^Turned off \d+$/.test(debloatStep.detail) && !/refused/.test(debloatStep.detail), debloatStep.detail);
-  const config = JSON.parse(state.files["/data/local/tmp/tvsetup-config.json"].toString());
+  const config = JSON.parse(state.files["/data/local/tmp/tvsetup-look-config.json"].toString());
   assert.strictEqual(config.stock_home_redirect, AMAZON_HOME, "redirect target is Amazon's home");
   assert.strictEqual(config.power_on_home_always, true);
   assert.strictEqual(config.dock_apps[0], "space.nuvio.nativelegacy", "Nuvio first");

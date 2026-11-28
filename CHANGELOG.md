@@ -1,3 +1,12 @@
+## 1.9.0
+
+- **Good-looking home screens (Android TV, Google TV, Fire TV).** The clean home screen now comes with a look. Pick one from a gallery with previews while setting up, or change it later from the TV's page: **Nuvio Cinema** (new, made for OLED: true black, the focused app's artwork across the top, a glass dock, Earth-from-orbit photos), Aerial, Cinematic, Midnight Glass, Orba, Ridgelines, Christmas, Nature Calm, Glass, Red Rain, Onyx or Plain. Wallpapers, effects and the dock style go to the TV in about a minute; low-memory boxes get a lighter version automatically.
+- **Remote buttons.** On the TV's page, **Remote buttons → Add a button**, then press any spare button on the remote (YouTube, Netflix, the mic, a colour key). Choose what a press or a hold does: open Nuvio or any app, the Inputs menu, mute, standby and more. Arrows, OK, Back, Home, power and volume can't be changed.
+- **Open Nuvio when the TV turns on.** A switch in setup, and a **When the TV turns on** page to pick any app (it waits for the internet first; optionally also when the screen wakes).
+- **Samsung:** a "Make Nuvio one press away" guide (Autorun Last App, first in the app bar). **Samsung, LG and Nuvio Legacy on Android:** a recommended-settings card that fixes the wrong-episode autoplay and foreign-language picks, with a Copy button for the English-first filter.
+- **Settings:** pure-black (OLED) look for this app, and a backup of your saved TVs and settings to restore on a new phone.
+- Built-in launcher patch: a theme can name the power-on app, so TV Setup can set it from the phone.
+
 ## 1.8.2
 
 - **Nuvio Lite: shows why there are no streams.** Instead of a bare "No playable streams found", the TV now lists what each addon answered (an HTTP error, results without debrid links, or an empty list) and whether it went through the phone or Cloudflare. The Older Samsung screen shows the last stream lookup (addon, HTTP status, playable count).

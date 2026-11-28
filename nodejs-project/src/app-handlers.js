@@ -13,6 +13,7 @@ const samsung = require("./platforms/samsung");
 const yearInfo = require("./platforms/samsung-year");
 const debloat = require("./platforms/debloat");
 const orsay = require("./platforms/orsay");
+const looks = require("./platforms/looks");
 
 const APP_VERSION = (() => {
   try { return fs.readFileSync(path.join(__dirname, "..", "VERSION"), "utf8").trim(); } catch { return "dev"; }
@@ -99,6 +100,32 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   ], (job) => android.undo(request, job)));
 
   handlers.set("device:launch", async (_event, request) => android.launch(request));
+
+  // Backup of saved TVs and settings (the Samsung certificate has its own encrypted backup).
+  handlers.set("backup:export", async () => {
+    const settings = await store.getSettings();
+    const devices = await store.listDevices();
+    const stamp = new Date().toISOString().slice(0, 10);
+    return { fileName: `tvsetup-backup-${stamp}.json`, text: JSON.stringify({ app: "TV Setup", version: APP_VERSION, exportedAt: Date.now(), settings, devices }, null, 1) };
+  });
+  handlers.set("backup:import", async (_event, text) => {
+    let data;
+    try { data = JSON.parse(String(text || "")); } catch { throw new Error("That file isn't a TV Setup backup."); }
+    if (data?.app !== "TV Setup" || !Array.isArray(data.devices)) throw new Error("That file isn't a TV Setup backup.");
+    if (data.settings && typeof data.settings === "object") await store.setSettings(data.settings);
+    for (const device of data.devices) if (device && device.id && device.platform) await store.saveDevice(device);
+    return { devices: data.devices.length };
+  });
+
+  // Android home screen: looks, remote buttons, the app that opens at power-on.
+  handlers.set("home:looks", async () => looks.listLooks());
+  handlers.set("home:apps", async (_event, request) => android.listApps(request));
+  handlers.set("home:learn", async (_event, request) => android.learnButton(request));
+  handlers.set("home:actions", async () => looks.ACTIONS);
+  handlers.set("home:apply", async (_event, request) => startJob("Updating the home screen", [
+    { id: "connect", label: "Connect to the TV" },
+    { id: "home", label: request.look ? "Apply the new look" : "Update remote buttons and power-on app" }
+  ], (job) => android.customizeHome(request, job)));
   handlers.set("device:remove", async (_event, id) => { await store.removeDevice(id); return true; });
   handlers.set("device:list", async () => store.listDevices());
   handlers.set("job:get", async (_event, id) => jobs.getJob(id));

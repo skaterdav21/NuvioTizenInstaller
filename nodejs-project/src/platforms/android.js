@@ -8,6 +8,7 @@ const adbLib = require("../core/adb");
 const assets = require("../core/assets");
 const store = require("../core/store");
 const debloat = require("./debloat");
+const looks = require("./looks");
 
 const LAUNCHER_PKG = "com.gathin.tvhome";
 // Horizon Home Kit (MIT): Nuvio-first home with artwork, Continue Watching and a Live TV guide.
@@ -263,20 +264,32 @@ async function setupHome(adb, job, step, device, choices, deviceKey, dockApps) {
   if (result.status !== "installed" && !device.packages.has(LAUNCHER_PKG)) throw new Error(result.detail);
 
   const stock = device.isFire ? FIRE_HOME : await findStockLauncher(adb, device);
-  const config = {
-    dock_apps: dockApps,
-    fill_dock: true,
-    reduced_motion: device.memMb && device.memMb < 1700,
-    show_greeting: false
+  const saved = (await store.getDevice(deviceKey))?.home || {};
+  const owned = {
+    dockApps,
+    stockHome: (choices.homeMode === "redirect" || device.isFire) && stock ? stock : "",
+    buttons: choices.buttons ?? saved.buttons ?? [],
+    openOnStart: choices.openOnStart ?? saved.openOnStart ?? "",
+    openOnWake: choices.openOnWake ?? saved.openOnWake ?? false
   };
-  if ((choices.homeMode === "redirect" || device.isFire) && stock) {
-    config.stock_home_redirect = stock;
-    config.power_on_home_always = true;
-  }
-  step.detail("Setting up your dock…");
+  const lookId = choices.look || saved.look || ((await looks.listLooks()).length ? "nuvio-cinema" : "");
+  const writeHome = async (configOnly) => {
+    if (lookId) {
+      await looks.applyLook(adb, { lookId, owned, device, configOnly, onProgress: (f, text) => step.progress(f, text) });
+      return true;
+    }
+    const config = looks.mergeConfig({ show_greeting: false }, owned, device);
+    return pushLauncherConfig(adb, config);
+  };
+  // The look can turn on the launcher's key service (redirect, remote buttons): remember the list from before it.
+  const a11yBefore = (await adb.shell("settings get secure enabled_accessibility_services")).trim();
+  await store.updateUndo(deviceKey, (undo) => ({ ...undo, accessibility: undo.accessibility ?? a11yBefore }));
+  step.detail(lookId ? "Dressing up the home screen…" : "Setting up your dock…");
   await adb.shell(`am start -W -n ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; true`);
-  const written = await pushLauncherConfig(adb, config);
+  let written = false;
+  try { written = await writeHome(false); } catch (error) { job.log(`Couldn't apply the look (${error.message}); using the plain screen.`); written = await pushLauncherConfig(adb, looks.mergeConfig({}, owned, device)); }
   if (!written) job.log("Couldn't write the dock layout; the home screen uses its defaults.");
+  await store.saveDevice({ id: deviceKey, home: { look: lookId, dockApps, stockHome: owned.stockHome, buttons: owned.buttons, openOnStart: owned.openOnStart, openOnWake: owned.openOnWake, memMb: device.memMb || 0 } });
 
   await store.updateUndo(deviceKey, (undo) => ({ ...undo, stockLauncher: stock || undo.stockLauncher, homeMode: choices.homeMode }));
 
@@ -293,9 +306,9 @@ async function setupHome(adb, job, step, device, choices, deviceKey, dockApps) {
       } else {
         job.log(`Home went to ${now || "nothing"}; undoing and switching to the Home-button redirect instead.`);
         await adb.shell(`pm enable --user 0 ${stock} >/dev/null 2>&1; true`);
-        config.stock_home_redirect = stock;
-        config.power_on_home_always = true;
-        await pushLauncherConfig(adb, config);
+        owned.stockHome = stock;
+        await writeHome(true);
+        await store.saveDevice({ id: deviceKey, home: { ...(await store.getDevice(deviceKey))?.home, stockHome: stock } });
         const previous = await enableAccessibilityService(adb, "HomeKeyService");
         await store.updateUndo(deviceKey, (undo) => ({ ...undo, homeMode: "redirect", accessibility: undo.accessibility ?? previous }));
         await adb.shell(`am start -W -n ${LAUNCHER_ACTIVITY} >/dev/null 2>&1; true`);
@@ -432,10 +445,7 @@ async function run({ ip, profile, choices }, job) {
   }
 
   if (choices.homeMode && choices.homeMode !== "none") {
-    const nuvioPkg = choices.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv";
-    const youtube = choices.smarttube ? "com.teamsmart.videomanager.tv" : device.isFire ? "com.amazon.firetv.youtube" : "com.google.android.youtube.tv";
-    const dock = [nuvioPkg, "com.nuvio.tv", "space.nuvio.nativelegacy", youtube, "com.plexapp.android", "com.netflix.ninja", ...(device.isFire ? ["com.amazon.amazonvideo.livingroom"] : [])];
-    const dockApps = [...new Set(dock)].slice(0, 5);
+    const dockApps = defaultDock(choices, device);
     await job.run("home", (step) => choices.homeStyle === "horizon" && !device.isFire
       ? setupHorizon(adb, job, step, device, choices, deviceKey, {
         name: choices.horizon?.name || "",
@@ -500,6 +510,79 @@ async function run({ ip, profile, choices }, job) {
   return { deviceKey };
 }
 
+function defaultDock(choices, device) {
+  const nuvioPkg = choices.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv";
+  const youtube = choices.smarttube ? "com.teamsmart.videomanager.tv" : device.isFire ? "com.amazon.firetv.youtube" : "com.google.android.youtube.tv";
+  const dock = [nuvioPkg, "com.nuvio.tv", "space.nuvio.nativelegacy", youtube, "com.plexapp.android", "com.netflix.ninja", ...(device.isFire ? ["com.amazon.amazonvideo.livingroom"] : [])];
+  return [...new Set(dock)].slice(0, 5);
+}
+
+// ---- Home screen look, remote buttons, power-on app (after setup) ------------------------
+
+async function customizeHome({ ip, deviceKey, look, buttons, openOnStart, openOnWake }, job) {
+  let adb;
+  let device;
+  await job.run("connect", async (step) => {
+    adb = await getConnection(ip, { onAuthPrompt: () => step.waiting("On the TV, choose Allow on \"Allow USB debugging?\" and tick Always allow.") });
+    device = await readDevice(adb);
+    return `${device.manufacturer} ${device.model}`;
+  });
+  await job.run("home", async (step) => {
+    if (!device.packages.has(LAUNCHER_PKG)) throw new Error("The clean home screen isn't on this TV yet. Run setup and pick the Minimal (CleanYourTV) home screen first.");
+    const record = (await store.getDevice(deviceKey)) || {};
+    const saved = record.home || {};
+    const owned = {
+      dockApps: saved.dockApps?.length ? saved.dockApps : defaultDock(record.choices || {}, device),
+      stockHome: saved.stockHome || "",
+      buttons: buttons ?? saved.buttons ?? [],
+      openOnStart: openOnStart ?? saved.openOnStart ?? "",
+      openOnWake: openOnWake ?? saved.openOnWake ?? false
+    };
+    const lookId = look || saved.look || "nuvio-cinema";
+    const configOnly = lookId === saved.look && !look;
+    const before = (await adb.shell("settings get secure enabled_accessibility_services")).trim();
+    await looks.applyLook(adb, { lookId, owned, device, configOnly, onProgress: (f, text) => step.progress(f, text) });
+    await store.updateUndo(deviceKey, (undo) => ({ ...undo, accessibility: undo.accessibility ?? before }));
+    await store.saveDevice({ id: deviceKey, home: { ...saved, look: lookId, ...owned, memMb: device.memMb || 0 } });
+    const parts = [];
+    if (!configOnly) parts.push(`${(await looks.listLooks()).find((l) => l.id === lookId)?.name || lookId} look applied`);
+    if (owned.buttons.length) parts.push(`${owned.buttons.length} remote button${owned.buttons.length > 1 ? "s" : ""} mapped`);
+    if (owned.openOnStart) parts.push(`${appLabel(owned.openOnStart)} opens when the TV turns on`);
+    return parts.join(", ") || "Home screen updated";
+  });
+  return { deviceKey };
+}
+
+const APP_LABELS = {
+  "com.nuvio.tv": "Nuvio", "space.nuvio.nativelegacy": "Nuvio Legacy", "com.teamsmart.videomanager.tv": "SmartTube",
+  "com.google.android.youtube.tv": "YouTube", "com.plexapp.android": "Plex", "com.netflix.ninja": "Netflix",
+  "com.amazon.amazonvideo.livingroom": "Prime Video", "com.disney.disneyplus": "Disney+", "com.wbd.stream": "Max",
+  "com.hulu.livingroomplus": "Hulu", "com.google.android.tv": "Live TV", "com.android.tv.settings": "Settings",
+  "com.spotify.tv.android": "Spotify", "com.apple.atve.androidtv.appletv": "Apple TV", "org.xbmc.kodi": "Kodi",
+  "com.google.android.youtube.tvmusic": "YouTube Music", "com.cbs.ott": "Paramount+", "com.peacocktv.peacockandroid": "Peacock",
+  "com.horizon.home": "Horizon Home", [LAUNCHER_PKG]: "Clean home screen"
+};
+function appLabel(pkg) {
+  if (APP_LABELS[pkg]) return APP_LABELS[pkg];
+  const last = String(pkg).split(".").filter((w) => !/^(com|org|tv|android|app|net|ott|livingroom)$/i.test(w)).pop() || pkg;
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+async function listApps({ ip }) {
+  const adb = await getConnection(ip);
+  const out = await adb.shell("cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER 2>/dev/null; cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER 2>/dev/null");
+  const pkgs = [...new Set(out.split(/\r?\n/).map((l) => l.trim()).filter((l) => /^[\w.]+\/[\w.$]+$/.test(l)).map((l) => l.split("/")[0]))]
+    .filter((p) => p !== LAUNCHER_PKG && !/^com\.android\.(documentsui|providers)/.test(p));
+  const order = ["com.nuvio.tv", "space.nuvio.nativelegacy", "com.teamsmart.videomanager.tv", "com.plexapp.android"];
+  pkgs.sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99) || appLabel(a).localeCompare(appLabel(b)));
+  return pkgs.map((pkg) => ({ pkg, label: appLabel(pkg) }));
+}
+
+async function learnButton({ ip, seconds = 12 }) {
+  const adb = await getConnection(ip);
+  return looks.learnButton(adb, seconds);
+}
+
 // ---- Undo -----------------------------------------------------------------------------
 
 async function undo({ ip, deviceKey, removeLauncher = true }, job) {
@@ -547,4 +630,4 @@ async function launch({ ip, pkg }) {
   return true;
 }
 
-module.exports = { init, inspect, run, undo, launch, stepsFor, readDevice, getConnection, LAUNCHER_PKG };
+module.exports = { init, inspect, run, undo, launch, stepsFor, readDevice, getConnection, customizeHome, listApps, learnButton, appLabel, LAUNCHER_PKG };

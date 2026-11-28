@@ -1,0 +1,18 @@
+{
+  "_comment": "Home screen looks bundled into TV Setup. 'from' is a CleanYourTV theme folder; 'config' overrides it with a folder here; 'wallpapersFrom' borrows another theme's pictures. Order is the order on the phone.",
+  "looks": [
+    { "id": "nuvio-cinema", "name": "Nuvio Cinema", "config": "launcher/looks/nuvio-cinema", "wallpapersFrom": "aerial", "shot": "aerial",
+      "desc": "Made for OLED: true black, the focused app's artwork across the top, a glass dock and slow-rotating Earth-from-orbit photos.", "oled": true },
+    { "id": "aerial", "from": "aerial", "name": "Aerial", "desc": "Apple TV style: photos of Earth from the Space Station on pure black, shuffled every 15 minutes.", "oled": true },
+    { "id": "cinematic", "from": "cinematic", "name": "Cinematic", "desc": "OLED cinema look: one deep wallpaper in true colour, a six-app glass dock and the clock after two idle minutes.", "oled": true },
+    { "id": "midnight-glass", "from": "midnight-glass", "name": "Midnight Glass", "desc": "Dark backdrops (home cinema, Earth at night, a concert crowd) with the app's artwork on top and colour glow." },
+    { "id": "orba", "from": "orba", "name": "Orba", "desc": "Midnight blue with light waves along the bottom; tiles float with a soft halo in each app's colour.", "oled": true },
+    { "id": "ridgelines", "from": "ridgelines", "name": "Ridgelines", "desc": "Layered mountains that change with the time of day: misty mornings, golden hour, aurora at night." },
+    { "id": "christmas", "from": "christmas", "name": "Christmas", "desc": "Snowy nights, a fireplace and a Christmas market, a new picture every 20 minutes." },
+    { "id": "nature-calm", "from": "nature-calm", "name": "Nature Calm", "desc": "Twelve calm nature photos rotating every five minutes, with the place under the buttons." },
+    { "id": "glass", "from": "glass", "name": "Glass", "desc": "Navy with soft teal and violet light, the cinematic top shelf and a frosted dock." },
+    { "id": "red-rain", "from": "red-rain", "name": "Red Rain", "desc": "Crimson code rain on pure black.", "oled": true },
+    { "id": "onyx", "from": "onyx", "name": "Onyx", "desc": "No wallpaper: a deep charcoal canvas with a thin focus ring. The lightest look.", "oled": true },
+    { "id": "plain", "name": "Plain", "desc": "The original CleanYourTV screen, no wallpaper." }
+  ]
+}
