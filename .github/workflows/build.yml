@@ -73,6 +73,7 @@ jobs:
           node tests/test-android-fire.js
           node tests/test-orsay.js
           node tests/test-looks.js
+          node tests/test-lg-root.js
 
       - name: Prepare signing key
         env:

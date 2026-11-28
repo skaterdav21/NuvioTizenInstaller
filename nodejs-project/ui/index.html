@@ -265,7 +265,7 @@ function setDock(action, hint, onClick, { enabled = true, pulse = false } = {}) 
 }
 
 // ---------------- Profiles & instructions ----------------
-const GLYPH = { samsung: "Sa", "samsung-old": "Sa", lg: "LG", shield: "Nv", onn: "onn", sony: "Sy", androidtv: "TV", firetv: "Fi", chromecast: "TV" };
+const GLYPH = { samsung: "Sa", "samsung-old": "Sa", lg: "LG", "lg-rooted": "LG", shield: "Nv", onn: "onn", sony: "Sy", androidtv: "TV", firetv: "Fi", chromecast: "TV" };
 // Developer mode, per device. steps: the short path; more: other models; tips: when it doesn't work.
 const GUIDES = {
   samsung: {
@@ -287,6 +287,15 @@ const GUIDES = {
     tips: ["Dev Mode Status won't turn on: the account's email isn't confirmed yet, or the TV's date and time are wrong.",
       "Developer Mode runs out after about 50 hours unless it's extended. This app extends it every time you open it, so open TV Setup on the same Wi-Fi now and then.",
       "Key Server only has to be on while this app connects the first time."],
+    ip: "Settings → Network → Wi-Fi Connection → your network → Advanced Wi-Fi Settings."
+  },
+  "lg-rooted": {
+    steps: ["Root the TV first with the community tools. TV Setup doesn't root TVs. Check your firmware at <a class=\"link\" href=\"https://cani.rootmy.tv\">cani.rootmy.tv</a> and follow the guide it points to (DejaVuln, faultmanager or RootMyTV). Rooting removes LG's Developer Mode app; Homebrew Channel replaces it.",
+      "Open <b>Homebrew Channel → Settings</b>. Root status must say <b>ok</b>. Turn on <b>SSH Server</b> and restart the TV.",
+      "Enter the TV's IP below. Leave the password empty unless you changed Homebrew Channel's default (<b>alpine</b>)."],
+    tips: ["TV Setup adds this phone's key to the TV, so later connections don't need a password. Homebrew Channel then turns password login off after the next restart; your own SSH key (if any) keeps working.",
+      "Turn off automatic LG software updates (Settings → General → Support → Software Update). An update can remove root, and new firmware may not be rootable again.",
+      "Home not taken over on your remote? Use <b>Learn a button</b> on the TV's page; non-Magic remotes can send a different ID."],
     ip: "Settings → Network → Wi-Fi Connection → your network → Advanced Wi-Fi Settings."
   },
   shield: {
@@ -457,6 +466,7 @@ function viewConnect() {
     ${guideExtras(t.profile)}
     ${isSamsung ? `<div class="port"><span>This phone's IP:</span><b id="my-ip">${esc(phoneIp() || "not on Wi-Fi")}</b><button class="link" id="copy-ip">Copy</button></div>` : ""}
     <label class="field"><span>TV's IP address</span><input type="text" id="ip" inputmode="decimal" placeholder="192.168.1.50" value="${esc(t.ip || "")}"></label>
+    ${p.platform === "lg-root" ? `<label class="field"><span>Root password (optional, default alpine)</span><input type="password" id="rootpass" autocomplete="off" value=""></label>` : ""}
     ${isLg ? `<label class="field"><span>Passphrase from the Developer Mode app</span><input type="text" id="pass" class="code" maxlength="6" autocomplete="off" autocapitalize="characters" value="${esc(t.passphrase || "")}"></label>` : ""}
     <div class="port" id="port"><span class="dot"></span><span id="port-text">Enter the TV's IP address</span></div>
     <p class="small muted">${p.platform === "android" ? "The TV shows <b>Allow USB debugging?</b> the first time. Choose Allow and tick Always allow. " : ""}Find the IP under ${(GUIDES[t.profile] || GUIDES.androidtv).ip}</p>`;
@@ -466,13 +476,13 @@ function viewConnect() {
     if (!ip || state.view !== "connect") return;
     const ports = await invoke("device:check", { ip, platform: p.platform }).catch(() => ({}));
     if (state.view !== "connect") return;
-    const ready = p.platform === "android" ? ports[5555] : p.platform === "samsung" ? ports[26101] : ports[9922] && ports[9991];
+    const ready = p.platform === "android" ? ports[5555] : p.platform === "samsung" ? ports[26101] : p.platform === "lg-root" ? ports[22] : ports[9922] && ports[9991];
     const seen = Object.values(ports).some(Boolean);
     const dot = document.querySelector("#port .dot");
     if (!dot) return;
     dot.className = `dot ${ready ? "green" : seen ? "yellow" : ""}`;
     $("port-text").textContent = ready ? "The TV is ready to connect" :
-      seen ? (p.platform === "lg" && ports[9922] ? "Turn on Key Server in the Developer Mode app" : "Found the TV, but developer mode isn't on yet") : "No answer yet. Check the IP and that the TV is on.";
+      seen ? (p.platform === "lg" && ports[9922] ? "Turn on Key Server in the Developer Mode app" : p.platform === "lg-root" ? "Found the TV, but SSH isn't on. Turn on SSH Server in Homebrew Channel." : "Found the TV, but developer mode isn't on yet") : "No answer yet. Check the IP and that the TV is on.";
   };
   clearInterval(portTimer);
   portTimer = setInterval(() => { if (state.view !== "connect") clearInterval(portTimer); else check(); }, 3000);
@@ -491,7 +501,9 @@ async function connectNow() {
   state.target = { ...state.target, ip, passphrase };
   setDock("Connecting…", p.platform === "android" ? "Accept the prompt on the TV" : "Signing in to the TV", null, { enabled: false });
   try {
-    const summary = await invoke("device:inspect", { profile: state.target.profile, ip, passphrase });
+    const password = $("rootpass")?.value || "";
+    if (password) state.target.password = password;
+    const summary = await invoke("device:inspect", { profile: state.target.profile, ip, passphrase, password });
     clearInterval(portTimer);
     state.summary = summary;
     state.choices = defaultChoices(summary);
@@ -504,6 +516,7 @@ async function connectNow() {
 
 function defaultChoices(s) {
   if (s.platform === "samsung") return { legacyVariant: s.recommendations.legacyVariant || "auto" };
+  if (s.platform === "lg" && s.rootMode) return { nuvio: s.installed?.nuvioVersion ? "skip" : "default", takeHome: true, bootHome: true, shortcuts: { netflix: "", prime: "", disney: "" }, extraKeys: [] };
   if (s.platform === "lg") return { nuvio: s.installed?.nuvioVersion ? "default" : "default", home: true, bootHome: Boolean(s.rooted) };
   const selected = s.debloat.categories.flatMap((c) => c.items.filter((i) => i.selected).map((i) => i.pkg));
   const hz = state.info?.settings?.horizon || {};
@@ -568,7 +581,24 @@ function viewPlan() {
       <select id="variant" style="margin-top:10px">${Object.entries(s.variants).map(([v, l]) => `<option value="${v}" ${c.legacyVariant === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></span></label></div>
       <p class="small muted">${s.certificateSaved ? "A Samsung certificate is saved on this phone, so sign-in should be skipped." : "First time on this TV: you'll sign in to a Samsung account once, in Chrome. The certificate is saved for future updates."}</p>
       ${quickAccess("samsung")}${nuvioTips()}${checklist("samsung")}`;
+  } else if (s.platform === "lg" && s.rootMode) {
+    const sc = c.shortcuts;
+    const scOpt = (key, label) => `<label class="field"><span>${label} button</span><select data-sc="${key}">
+      <option value="" ${!sc[key] ? "selected" : ""}>Keep as it is</option><option value="nuvio" ${sc[key] === "nuvio" ? "selected" : ""}>Open Nuvio</option><option value="home" ${sc[key] === "home" ? "selected" : ""}>Open TV Home</option></select></label>`;
+    body += `<div class="verdict ok"><b>Rooted${s.firmware ? `, firmware ${esc(s.firmware)}` : ""}</b><span class="small muted">Connected as root through Homebrew Channel. ${s.installed.inputHook ? `LG Input Hook ${esc(s.installed.inputHook)} is installed.` : "LG Input Hook gets installed for the Home button."}</span></div>
+      <div class="group"><div class="head"><b>Nuvio Legacy</b>${s.installed.nuvioVersion ? `<span class="muted">installed: ${esc(s.installed.nuvioVersion)}</span>` : ""}</div>
+        ${radio("lgvar", "default", c.nuvio, "Standard build", "Right for most LG TVs.", !s.installed.nuvioVersion)}
+        ${radio("lgvar", "highcache", c.nuvio, "High-cache build", "300 MB texture cache for TVs with more memory.")}
+        ${radio("lgvar", "skip", c.nuvio, "Don't reinstall", "Keep the Nuvio that's on the TV.", Boolean(s.installed.nuvioVersion))}</div>
+      <div class="group"><div class="head"><b>Take over Home</b><span class="muted">${s.takeover?.home ? "Home already opens TV Home" : "LG's home bar, gone"}</span></div>
+        ${toggle("takehome", c.takeHome, "Home button opens TV Home", "TV Home (Nuvio first, your apps and inputs, no ads) replaces LG's home bar. Hold Home or use Settings to reach LG's menus.")}
+        ${toggle("lgboot", c.bootHome, "Open TV Home when the TV turns on", "Starts about 20 seconds after power-on, once webOS has settled.")}
+        ${scOpt("netflix", "Netflix")}${scOpt("prime", "Prime Video")}${scOpt("disney", "Disney+")}
+        <div class="opt"><span class="d">Magic Remote button IDs. A different remote can be learnt from the TV's page after this runs.</span></div></div>
+      ${nuvioTips()}`;
   } else if (s.platform === "lg") {
+    const ro = s.rootOutlook;
+    body += ro ? `<div class="verdict ${ro.level === "rooted" || ro.level === "likely" ? "ok" : "warn"}"><b>Full Home takeover: ${esc(ro.title)}</b><span class="small muted">${esc(ro.text)} ${ro.level === "rooted" ? "" : "Replacing LG's Home button needs root. Until then, the steps below get close. Don't install LG software updates if you want to try."}</span></div>` : "";
     body += `<div class="group"><div class="head"><b>Nuvio Legacy</b>${s.installed.nuvioVersion ? `<span class="muted">installed: ${esc(s.installed.nuvioVersion)}</span>` : ""}</div>
       ${radio("lgvar", "default", c.nuvio, "Standard build", "Right for most LG TVs.", true)}
       ${radio("lgvar", "highcache", c.nuvio, "High-cache build", "300 MB texture cache for TVs with more memory. Smoother poster scrolling.")}
@@ -635,6 +665,8 @@ function bindPlan() {
   document.querySelectorAll('input[name="lgvar"]').forEach((el) => el.onchange = () => { c.nuvio = el.value; });
   { const el = document.querySelector('input[name="lghome"]'); if (el) el.onchange = () => { c.home = el.checked; }; }
   { const el = document.querySelector('input[name="lgboot"]'); if (el) el.onchange = () => { c.bootHome = el.checked; }; }
+  { const el = document.querySelector('input[name="takehome"]'); if (el) el.onchange = () => { c.takeHome = el.checked; }; }
+  document.querySelectorAll("[data-sc]").forEach((el) => el.onchange = () => { c.shortcuts[el.dataset.sc] = el.value; });
   const bindToggle = (name, key) => { const el = document.querySelector(`input[name="${name}"]`); if (el) el.onchange = () => { c[key] = el.checked; }; };
   bindToggle("speed", "speed"); bindToggle("smarttube", "smarttube"); bindToggle("replace", "replaceIncompatible"); bindToggle("dns", "dnsBlock");
   bindLooks((id) => { c.look = id; render(); });
@@ -848,7 +880,7 @@ async function startRun() {
   if (s.platform === "android" && choices.nuvio === "custom" && !choices.customApk) { toast("Pick your APK first."); return; }
   try {
     state.log = [];
-    const { jobId } = await invoke("device:run", { profile: s.profile, ip: s.ip, choices, passphrase: state.target?.passphrase || "" });
+    const { jobId } = await invoke("device:run", { profile: s.profile, ip: s.ip, choices, passphrase: state.target?.passphrase || "", password: state.target?.password || "" });
     state.job = { id: jobId, status: "running", steps: [], title: "Setting up" };
     keepAwake(true);
     go("run");
@@ -937,6 +969,9 @@ function openDevice(id) {
   openSheet(`<h2>${esc(d.name)}</h2><p class="lede">${esc(d.ip)}, ${esc(d.os || d.platform)}</p>
     <button class="key" id="dv-setup"><span class="grow"><span class="title">${d.lastSetup ? "Update Nuvio and re-run setup" : "Set up this TV"}</span><span class="sub">Connects, then shows the plan before changing anything</span></span><span class="chev">›</span></button>
     ${d.platform === "android" ? `<button class="key" id="dv-open"><span class="grow"><span class="title">Open Nuvio on the TV</span></span><span class="chev">›</span></button>` : ""}
+    ${d.profile === "lg-rooted" ? `<h3>Home takeover</h3>
+      <button class="key" id="dv-lglearn"><span class="glyph">Bt</span><span class="grow"><span class="title">Learn a button</span><span class="sub">For remotes whose Home or app buttons use other IDs</span></span><span class="chev">›</span></button>
+      <button class="key" id="dv-lgundo"><span class="glyph">↺</span><span class="grow"><span class="title">Give Home back to LG</span><span class="sub">Removes TV Setup's button mappings and the power-on script</span></span><span class="chev">›</span></button>` : ""}
     ${d.platform === "android" && (d.home || d.choices?.homeStyle === "clean") ? `<h3>Home screen</h3>
       <button class="key" id="dv-look"><span class="glyph">Lk</span><span class="grow"><span class="title">Look</span><span class="sub">${esc(lookName(d.home?.look) || "Plain")}</span></span><span class="chev">›</span></button>
       <button class="key" id="dv-keys"><span class="glyph">Bt</span><span class="grow"><span class="title">Remote buttons</span><span class="sub">${(d.home?.buttons || []).length ? `${d.home.buttons.length} mapped` : "Make a spare button open Nuvio"}</span></span><span class="chev">›</span></button>
@@ -945,6 +980,24 @@ function openDevice(id) {
   $("dv-setup").onclick = () => { closeSheet(); go("connect", { target: { profile: d.profile, ip: d.ip, passphrase: "" } }); setTimeout(connectNow, 50); };
   $("dv-open")?.addEventListener("click", async () => { try { await invoke("device:launch", { ip: d.ip, pkg: d.choices?.nuvio === "nuvio-legacy-android" ? "space.nuvio.nativelegacy" : "com.nuvio.tv" }); toast("Opening on the TV"); } catch (e) { toast(e.message); } closeSheet(); });
   $("dv-remove").onclick = async () => { await invoke("device:remove", id); closeSheet(); await refreshInfo(); render(); };
+  $("dv-lgundo")?.addEventListener("click", async () => {
+    try { await invoke("lgroot:undo", { ip: d.ip }); toast("Home goes back to LG's screen. TV Home stays installed."); closeSheet(); } catch (e) { toast(e.message, 5000); }
+  });
+  $("dv-lglearn")?.addEventListener("click", async () => {
+    openSheet(`<div class="listen"><div class="ring"></div><h2>Press the button now</h2><p class="lede">On the LG remote. Listening for 12 seconds.</p></div>`);
+    let found;
+    try { found = await invoke("lgroot:learn", { ip: d.ip }); } catch (e) { toast(e.message, 5000); closeSheet(); return; }
+    if (found.protected) { toast(`That's needed to move around, so it can't be changed.`, 5000); closeSheet(); return; }
+    openSheet(`<h2>${esc(found.name)}</h2><p class="lede">ID ${found.code}. What should it open?</p>
+      <button class="key" data-lgt="home"><span class="grow"><span class="title">TV Home</span><span class="sub">Use this for your remote's Home button</span></span><span class="chev">›</span></button>
+      <button class="key" data-lgt="nuvio"><span class="grow"><span class="title">Nuvio</span></span><span class="chev">›</span></button>`);
+    document.querySelectorAll("[data-lgt]").forEach((el) => el.onclick = async () => {
+      closeSheet();
+      const prev = d.choices || {};
+      const choices = { takeHome: prev.takeHome ?? true, bootHome: prev.bootHome ?? true, shortcuts: prev.shortcuts || {}, extraKeys: [...(prev.extraKeys || []).filter((k) => k.code !== found.code), { code: found.code, target: el.dataset.lgt }], nuvio: "skip" };
+      try { const { jobId } = await invoke("device:run", { profile: "lg-rooted", ip: d.ip, choices }); state.log = []; state.job = { id: jobId, status: "running", steps: [], title: "Mapping the button" }; keepAwake(true); go("run"); } catch (e) { toast(e.message, 5000); }
+    });
+  });
   $("dv-look")?.addEventListener("click", () => { closeSheet(); openLookSheet(d); });
   $("dv-keys")?.addEventListener("click", () => { closeSheet(); openButtonsSheet(d); });
   $("dv-start")?.addEventListener("click", () => { closeSheet(); openStartSheet(d); });

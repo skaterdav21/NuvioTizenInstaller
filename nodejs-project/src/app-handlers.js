@@ -14,6 +14,7 @@ const yearInfo = require("./platforms/samsung-year");
 const debloat = require("./platforms/debloat");
 const orsay = require("./platforms/orsay");
 const looks = require("./platforms/looks");
+const lgRoot = require("./platforms/lg-root");
 
 const APP_VERSION = (() => {
   try { return fs.readFileSync(path.join(__dirname, "..", "VERSION"), "utf8").trim(); } catch { return "dev"; }
@@ -23,6 +24,7 @@ const PROFILES = [
   { id: "samsung", platform: "samsung", label: "Samsung TV", sub: "Tizen, 2018 and newer" },
   { id: "samsung-old", platform: "samsung-old", label: "Older Samsung", sub: "2011 to 2017" },
   { id: "lg", platform: "lg", label: "LG TV", sub: "webOS with Developer Mode" },
+  { id: "lg-rooted", platform: "lg-root", label: "LG TV (rooted)", sub: "Homebrew Channel: full Home takeover" },
   { id: "shield", platform: "android", label: "NVIDIA Shield", sub: "Android TV" },
   { id: "onn", platform: "android", label: "onn box", sub: "Google TV / Android TV" },
   { id: "sony", platform: "android", label: "Sony BRAVIA", sub: "Google TV / Android TV" },
@@ -38,6 +40,7 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   store.init(userDataDir);
   assets.init(userDataDir, bundledDir);
   android.init(userDataDir);
+  lgRoot.init(userDataDir);
   samsung.init(handlers);
   jobs.setBroadcaster(broadcast);
   orsay.init({ broadcast, store });
@@ -76,7 +79,11 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   handlers.set("device:inspect", async (_event, request) => {
     const platform = platformOf(request.profile);
     if (platform === "samsung") return samsung.inspect(request);
-    if (platform === "lg") return lg.inspect(request);
+    if (platform === "lg") {
+      const summary = await lg.inspect(request);
+      return { ...summary, rootOutlook: lgRoot.rootOutlook(summary) };
+    }
+    if (platform === "lg-root") return lgRoot.inspect(request);
     return android.inspect(request, {
       onAuthPrompt: () => broadcast("device:authPrompt", { ip: request.ip })
     });
@@ -89,6 +96,7 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
     if (choices.homeStyle === "horizon" || choices.dnsBlock) choices.horizon = { ...((await store.getSettings()).horizon || {}) };
     if (platform === "samsung") return startJob("Setting up your Samsung TV", samsung.stepsFor(choices), (job) => samsung.run(request, job));
     if (platform === "lg") return startJob("Setting up your LG TV", lg.stepsFor(choices), (job) => lg.run(request, job));
+    if (platform === "lg-root") return startJob("Taking over your LG's Home button", lgRoot.stepsFor(choices), (job) => lgRoot.run(request, job));
     return startJob("Setting up your TV", android.stepsFor(choices), (job) => android.run(request, job));
   });
 
@@ -100,11 +108,14 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   ], (job) => android.undo(request, job)));
 
   handlers.set("device:launch", async (_event, request) => android.launch(request));
+  handlers.set("lgroot:learn", async (_event, request) => lgRoot.learnButton(request));
+  handlers.set("lgroot:undo", async (_event, request) => lgRoot.undo(request));
 
   // Backup of saved TVs and settings (the Samsung certificate has its own encrypted backup).
   handlers.set("backup:export", async () => {
     const settings = await store.getSettings();
-    const devices = await store.listDevices();
+    // Developer Mode keys and passphrases stay out of the file: the TV hands them out again on connect.
+    const devices = (await store.listDevices()).map(({ lg: lgSecrets, ...device }) => (lgSecrets?.token ? { ...device, lg: { token: lgSecrets.token } } : device));
     const stamp = new Date().toISOString().slice(0, 10);
     return { fileName: `tvsetup-backup-${stamp}.json`, text: JSON.stringify({ app: "TV Setup", version: APP_VERSION, exportedAt: Date.now(), settings, devices }, null, 1) };
   });
@@ -154,7 +165,8 @@ function register(handlers, { userDataDir, bundledDir, broadcast }) {
   // Prepare ahead: download everything the saved TVs (or all platforms) need, so setup at the
   // TV only uploads and installs. Samsung also gets its package pre-signed (installer:prefetch).
   handlers.set("prepare:run", async (_event, request = {}) => {
-    const devices = await store.listDevices();
+    // Developer Mode keys and passphrases stay out of the file: the TV hands them out again on connect.
+    const devices = (await store.listDevices()).map(({ lg: lgSecrets, ...device }) => (lgSecrets?.token ? { ...device, lg: { token: lgSecrets.token } } : device));
     const settings = await store.getSettings();
     const wantAll = Boolean(request.all || settings.prepareAllPlatforms);
     const wanted = [];

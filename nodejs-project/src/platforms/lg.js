@@ -179,6 +179,7 @@ async function inspect({ ip, passphrase }) {
     const info = await exec(client, "cat /var/run/nyx/os_info.json 2>/dev/null; echo; luna-send-pub -n 1 -f luna://com.webos.service.tv.systemproperty/getSystemInfo '{\"keys\":[\"modelName\",\"sdkVersion\",\"firmwareVersion\"]}' 2>/dev/null", { timeoutMs: 15000 }).catch(() => "");
     const model = (info.match(/"modelName"\s*:\s*"([^"]+)"/) || [])[1] || "";
     const webos = (info.match(/"webos_release"\s*:\s*"([^"]+)"/) || info.match(/"sdkVersion"\s*:\s*"([^"]+)"/) || [])[1] || "";
+    const firmware = (info.match(/"firmwareVersion"\s*:\s*"([^"]+)"/) || [])[1] || "";
     const apps = await exec(client, `luna-send-pub -n 1 -f luna://com.webos.applicationManager/getAppInfo '{"id":"${NUVIO_ID}"}'`, { timeoutMs: 15000 }).catch(() => "");
     const installedVersion = (apps.match(/"version"\s*:\s*"([^"]+)"/) || [])[1] || "";
     const token = await readSessionToken(client);
@@ -192,6 +193,7 @@ async function inspect({ ip, passphrase }) {
       installed: { nuvio: installedVersion ? [NUVIO_ID] : [], nuvioVersion: installedVersion, home: homeVersion },
       sessionTokenSaved: Boolean(token),
       rooted,
+      webos, firmware,
       recommendations: { nuvio: "nuvio-legacy-lg" }
     };
   } finally {

@@ -1,3 +1,9 @@
+## 1.10.0
+
+- **Rooted LG TVs: full Home takeover.** New **LG TV (rooted)** option for TVs with Homebrew Channel (root status ok, SSH on). TV Setup signs in as root (Homebrew Channel's default password once, then a key it leaves on the TV), installs TV Home, Nuvio Legacy and LG Input Hook, makes the **Home button open TV Home** instead of LG's home bar, opens TV Home at power-on, and can point the Netflix, Prime Video and Disney+ buttons at Nuvio. On the TV's page: **Learn a button** for other remotes, and **Give Home back to LG** to undo. Your own Input Hook bindings are left alone.
+- **LG root check.** Setting up an LG through Developer Mode now reads its webOS and firmware version and says whether it's likely rootable (DejaVuln, faultmanager, the 2026 webOS 10 kernel exploit), with a reminder to hold off LG updates. TV Setup doesn't root TVs itself.
+- Backups no longer include LG Developer Mode keys or passphrases.
+
 ## 1.9.0
 
 - **Good-looking home screens (Android TV, Google TV, Fire TV).** The clean home screen now comes with a look. Pick one from a gallery with previews while setting up, or change it later from the TV's page: **Nuvio Cinema** (new, made for OLED: true black, the focused app's artwork across the top, a glass dock, Earth-from-orbit photos), Aerial, Cinematic, Midnight Glass, Orba, Ridgelines, Christmas, Nature Calm, Glass, Red Rain, Onyx or Plain. Wallpapers, effects and the dock style go to the TV in about a minute; low-memory boxes get a lighter version automatically.

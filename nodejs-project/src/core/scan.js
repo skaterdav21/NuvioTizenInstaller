@@ -137,7 +137,7 @@ async function scan(subnetIp, { onProgress, onFound, timeoutMs = 450, concurrenc
 
 async function check(address, platform) {
   const [host, customPort] = String(address).split(":");
-  const ports = { android: [Number(customPort) || 5555], samsung: [26101, 8001], "samsung-old": [26101, 8001, 55000], lg: [9922, 3000, 9991] }[platform] || [];
+  const ports = { android: [Number(customPort) || 5555], samsung: [26101, 8001], "samsung-old": [26101, 8001, 55000], lg: [9922, 3000, 9991], "lg-root": [22, 3000] }[platform] || [];
   const out = {};
   await Promise.all(ports.map(async (port) => { out[port] = await probe(host, port, 1500); }));
   if (platform === "android" && customPort) out[5555] = out[Number(customPort)];
